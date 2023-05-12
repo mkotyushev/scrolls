@@ -11,7 +11,7 @@ services:
     environment:
       - SSH_AUTH_SOCK:${SSH_AUTH_SOCK}
     volumes:
-      - .:/workspace/<<[repository_name]>>:cached
+      - .:/workspace/scrolls:cached
       - data:/workspace/data:cached
       - $SSH_AUTH_SOCK:${SSH_AUTH_SOCK}
     command: /bin/sh -c "while sleep 1000; do :; done"

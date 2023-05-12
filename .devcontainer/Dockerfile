@@ -2,7 +2,7 @@
 FROM nvidia/cuda:11.7.0-devel-ubuntu22.04
 
 # Set working directory
-WORKDIR /workspaces/<<[repository_name]>>
+WORKDIR /workspaces/scrolls
 
 # Apt-get installs
 RUN \
@@ -23,17 +23,17 @@ ARG PATH="/root/miniconda3/bin:${PATH}"
 RUN conda init bash
 RUN \
     conda create \
-    --name <<[repository_name]>> \
+    --name scrolls \
     python=3.10 \
     gcc_linux-64 gxx_linux-64 libgcc cudatoolkit=11.7 \
     -c conda-forge -y
-RUN /root/miniconda3/envs/<<[repository_name]>>/bin/python -m pip install --upgrade pip
+RUN /root/miniconda3/envs/scrolls/bin/python -m pip install --upgrade pip
 
 # Install torch & other related deps: 
 # - not in requirements.txt because order of install matters
 # - torch first due to some dependencies importing torch during install
 RUN \
-    /root/miniconda3/envs/<<[repository_name]>>/bin/pip install \
+    /root/miniconda3/envs/scrolls/bin/pip install \
     --default-timeout=1000 \
     --extra-index-url https://download.pytorch.org/whl/cu117 \
     torch==2.0.1+cu117 \
@@ -41,10 +41,10 @@ RUN \
 
 # Install requirements
 COPY requirements.txt .
-RUN /root/miniconda3/envs/<<[repository_name]>>/bin/pip install \
+RUN /root/miniconda3/envs/scrolls/bin/pip install \
     --default-timeout=1000 \
     -r requirements.txt 
 
 # Add repo folder to PYTHONPATH
-ENV PYTHONPATH="/workspaces/<<[repository_name]>>:${PYTHONPATH}"
-ARG PYTHONPATH="/workspaces/<<[repository_name]>>:${PYTHONPATH}"
+ENV PYTHONPATH="/workspaces/scrolls:${PYTHONPATH}"
+ARG PYTHONPATH="/workspaces/scrolls:${PYTHONPATH}"
