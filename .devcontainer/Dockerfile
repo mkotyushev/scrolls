@@ -2,12 +2,12 @@
 FROM nvidia/cuda:11.7.0-devel-ubuntu22.04
 
 # Set working directory
-WORKDIR /workspaces/scrolls
+WORKDIR /workspace/scrolls
 
 # Apt-get installs
 RUN \
     apt update && \
-    apt-get -y install git unzip wget tmux curl
+    apt-get -y install git unzip wget tmux curl libgl1 libglib2.0-0
 
 # Install Miniconda
 RUN \
@@ -46,5 +46,5 @@ RUN /root/miniconda3/envs/scrolls/bin/pip install \
     -r requirements.txt 
 
 # Add repo folder to PYTHONPATH
-ENV PYTHONPATH="/workspaces/scrolls:${PYTHONPATH}"
-ARG PYTHONPATH="/workspaces/scrolls:${PYTHONPATH}"
+ENV PYTHONPATH="/workspace/scrolls:${PYTHONPATH}"
+ARG PYTHONPATH="/workspace/scrolls:${PYTHONPATH}"
