@@ -1,7 +1,11 @@
+from collections import defaultdict
 from typing import Optional
 from lightning import Trainer
-from lightning.cli import LightningCLI
-from lightning.callbacks import ModelCheckpoint
+from lightning.pytorch.cli import LightningCLI
+from lightning.pytorch.callbacks import ModelCheckpoint
+from lightning.pytorch.loggers import WandbLogger, TensorBoardLogger
+from torch.utils.data import default_collate
+from weakref import proxy
 
 
 class MyLightningCLI(LightningCLI):
@@ -83,3 +87,21 @@ class TempSetContextManager:
 
     def __exit__(self, *args):
         setattr(self.obj, self.attr, self.old_value)
+
+
+def surface_volume_collate_fn(batch):
+    """Collate function for surface volume dataset.
+    batch: list of dicts of np.ndarray
+    output: dict of torch.Tensor
+    """
+    output = defaultdict(list)
+    for sample in batch:
+        for k, v in sample.items():
+            if k == 'image':
+                output[k].append(v)
+            elif k == 'masks':
+                for i, mask in enumerate(v):
+                    output[f'mask_{i}'].append(mask)
+    for k, v in output.items():
+        output[k] = default_collate(v)
+    return output
