@@ -1,5 +1,6 @@
+import torch
 from collections import defaultdict
-from typing import Optional
+from typing import Dict, Optional, Union
 from lightning import Trainer
 from lightning.pytorch.cli import LightningCLI
 from lightning.pytorch.callbacks import ModelCheckpoint
@@ -105,3 +106,36 @@ def surface_volume_collate_fn(batch):
     for k, v in output.items():
         output[k] = default_collate(v)
     return output
+
+
+def state_norm(module: torch.nn.Module, norm_type: Union[float, int, str], group_separator: str = "/") -> Dict[str, float]:
+    """Compute each state dict tensor's norm and their overall norm.
+
+    The overall norm is computed over all tensor together, as if they
+    were concatenated into a single vector.
+
+    Args:
+        module: :class:`torch.nn.Module` to inspect.
+        norm_type: The type of the used p-norm, cast to float if necessary.
+            Can be ``'inf'`` for infinity norm.
+        group_separator: The separator string used by the logger to group
+            the tensor norms in their own subfolder instead of the logs one.
+
+    Return:
+        norms: The dictionary of p-norms of each parameter's gradient and
+            a special entry for the total p-norm of the tensor viewed
+            as a single vector.
+    """
+    norm_type = float(norm_type)
+    if norm_type <= 0:
+        raise ValueError(f"`norm_type` must be a positive number or 'inf' (infinity norm). Got {norm_type}")
+
+    norms = {
+        f"state_{norm_type}_norm{group_separator}{name}": p.data.float().norm(norm_type)
+        for name, p in module.state_dict().items()
+        if not 'num_batches_tracked' in name
+    }
+    if norms:
+        total_norm = torch.tensor(list(norms.values())).norm(norm_type)
+        norms[f"state_{norm_type}_norm_total"] = total_norm
+    return norms
