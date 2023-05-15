@@ -1,3 +1,4 @@
+import cv2
 import numpy as np
 from pathlib import Path
 from PIL import Image
@@ -23,8 +24,13 @@ class InMemorySurfaceVolumeDataset:
             root = Path(root)
             volume = []
             for i in range(self.N_SLICES):
-                volume.append(np.asarray(Image.open(root / 'surface_volume' / f'{i:02}.tif')))
-            volume = (np.stack(volume).transpose(1, 2, 0) // 256).astype(np.uint8)
+                volume.append(
+                    cv2.imread(
+                        str(root / 'surface_volume' / f'{i:02}.tif'),
+                        cv2.IMREAD_UNCHANGED
+                    )
+                )
+            volume = np.stack(volume).transpose(1, 2, 0)
             self.volumes.append(volume)
 
         # Masks: binary masks of scroll regions

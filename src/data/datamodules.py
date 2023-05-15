@@ -47,6 +47,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
     def build_transforms(self) -> None:
         self.train_transform = A.Compose(
             [
+                A.ToFloat(max_value=65535.0),
                 A.RandomCrop(
                     2 * self.hparams.crop_size, 
                     2 * self.hparams.crop_size, 
@@ -74,6 +75,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         )
         self.val_transform = self.test_transform = A.Compose(
             [
+                A.ToFloat(max_value=65535.0),
                 A.Normalize(
                     max_pixel_value=65536,
                     mean=sum((0.485, 0.456, 0.406)) / 3,
