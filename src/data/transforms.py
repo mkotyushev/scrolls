@@ -1,6 +1,8 @@
+import random
 import cv2
 import numpy as np
-from albumentations import Rotate, ImageOnlyTransform, DualTransform
+from albumentations import Rotate, DualTransform
+from albumentations.augmentations.crops import functional as F
 
 
 class RotateX(Rotate):
@@ -25,26 +27,97 @@ class RotateX(Rotate):
             interpolation=cv2.INTER_NEAREST
         )
         return img
-    
-
-class RandomCropZ(ImageOnlyTransform):
-    """Crop randomly selected slice along Z axis."""
-    def __init__(self, crop_size: int):
-        super().__init__(always_apply=True, p=1)
-        self.crop_size = crop_size
-
-    def apply(self, img: np.ndarray, **params) -> np.ndarray:
-        z = np.random.randint(0, img.shape[2] - self.crop_size)
-        return img[:, :, z:z + self.crop_size]
 
 
-class Copy(DualTransform):
-    """Copy image."""
-    def __init__(self):
-        super().__init__(always_apply=True, p=1)
+class RandomCropVolumeCopy(DualTransform):
+    """Crop a random part of the input.
+    If image, crop is 3D, if mask, crop is 2D.
 
-    def apply(self, img: np.ndarray, **params) -> np.ndarray:
-        return img.copy()
+    Args:
+        height (int): height of the crop.
+        width (int): width of the crop.
+        depth (int): depth of the crop.
+        p (float): probability of applying the transform. Default: 1.
 
-    def apply_to_mask(self, img, **params):
-        return img.copy()
+    Targets:
+        image, mask
+
+    Image types:
+        uint8, float32
+    """
+
+    def __init__(self, height, width, depth, always_apply=False, p=1.0):
+        super().__init__(always_apply, p)
+        self.height = height
+        self.width = width
+        self.depth = depth
+
+    def apply(self, img, h_start=0, w_start=0, d_start=0, is_mask=False, **params):
+        img = F.random_crop(img, self.height, self.width, h_start, w_start)
+        if not is_mask:
+            z = np.random.randint(d_start, max(img.shape[2] - self.depth, d_start + 1))
+            img = img[:, :, z:min(z + self.depth, img.shape[2])]
+        img = img.copy()
+        return img
+
+    def apply_to_mask(self, img: np.ndarray, **params) -> np.ndarray:
+        return self.apply(img, is_mask=True, **{k: cv2.INTER_NEAREST if k == "interpolation" else v for k, v in params.items()})
+
+    def apply_to_bbox(self, bbox, **params):
+        return F.bbox_random_crop(bbox, self.height, self.width, **params)
+
+    def apply_to_keypoint(self, keypoint, **params):
+        return F.keypoint_random_crop(keypoint, self.height, self.width, **params)
+
+    def get_params(self):
+        return {"h_start": random.random(), "w_start": random.random(), "d_start": random.random()}
+
+    def get_transform_init_args_names(self):
+        return ("height", "width", "depth")
+
+
+class CenterCropVolume(DualTransform):
+    """Crop the central part of the input.
+
+    Args:
+        height (int): height of the crop.
+        width (int): width of the crop.
+        depth (int): depth of the crop.
+        p (float): probability of applying the transform. Default: 1.
+
+    Targets:
+        image, mask
+
+    Image types:
+        uint8, float32
+
+    Note:
+        It is recommended to use uint8 images as input.
+        Otherwise the operation will require internal conversion
+        float32 -> uint8 -> float32 that causes worse performance.
+    """
+
+    def __init__(self, height, width, depth, always_apply=False, p=1.0):
+        super(CenterCropVolume, self).__init__(always_apply, p)
+        self.height = height
+        self.width = width
+        self.depth = depth
+
+    def apply(self, img, is_mask=False, **params):
+        img = F.center_crop(img, self.height, self.width)
+        if not is_mask:
+            z = max((img.shape[2] - self.depth) // 2, 0)
+            img = img[:, :, z:min(z + self.depth, img.shape[2])]
+        return img
+
+    def apply_to_mask(self, img: np.ndarray, **params) -> np.ndarray:
+        return self.apply(img, is_mask=True, **{k: cv2.INTER_NEAREST if k == "interpolation" else v for k, v in params.items()})
+
+    def apply_to_bbox(self, bbox, **params):
+        return F.bbox_center_crop(bbox, self.height, self.width, **params)
+
+    def apply_to_keypoint(self, keypoint, **params):
+        return F.keypoint_center_crop(keypoint, self.height, self.width, **params)
+
+    def get_transform_init_args_names(self):
+        return ("height", "width", "depth")

@@ -1,12 +1,33 @@
+import cv2
 import albumentations as A
+import numpy as np
+import torch.multiprocessing as mp
+from pathlib import Path
 from typing import List, Optional
 from lightning import LightningDataModule
 from torch.utils.data import DataLoader
 from albumentations.pytorch import ToTensorV2
 
 from src.data.datasets import InMemorySurfaceVolumeDataset, SubsetWithTransformAndRepeats
-from src.data.transforms import RandomCropZ, RotateX, Copy
+from src.data.transforms import RandomCropVolumeCopy, CenterCropVolume, RotateX
 from src.utils.utils import surface_volume_collate_fn
+
+
+N_SLICES = 65
+def read_volumes(shared_storage, surface_volume_dirs):
+    # Volumes
+    for root in surface_volume_dirs:
+        root = Path(root)
+        volume = []
+        for i in range(N_SLICES):
+            volume.append(
+                cv2.imread(
+                    str(root / 'surface_volume' / f'{i:02}.tif'),
+                    cv2.IMREAD_UNCHANGED
+                )
+            )
+        volume = np.stack(volume).transpose(1, 2, 0)
+        shared_storage.append(volume)
 
 
 class SurfaceVolumeDatamodule(LightningDataModule):
@@ -47,23 +68,23 @@ class SurfaceVolumeDatamodule(LightningDataModule):
     def build_transforms(self) -> None:
         self.train_transform = A.Compose(
             [
-                A.ToFloat(max_value=65535.0),
-                A.RandomCrop(
-                    2 * self.hparams.crop_size, 
-                    2 * self.hparams.crop_size, 
+                RandomCropVolumeCopy(
+                    height=2 * self.hparams.crop_size, 
+                    width=2 * self.hparams.crop_size, 
+                    depth=2 * self.hparams.crop_size_z,
                     always_apply=True,
                 ),
-                RandomCropZ(crop_size=self.hparams.crop_size_z),
-                A.HorizontalFlip(p=0.5),
-                A.VerticalFlip(p=0.5),
                 RotateX(p=0.5, limit=10),
                 A.Rotate(p=0.5, limit=30),
                 A.RandomScale(p=0.5, scale_limit=0.2),
-                A.CenterCrop(
-                    self.hparams.crop_size, 
-                    self.hparams.crop_size,
+                CenterCropVolume(
+                    height=self.hparams.crop_size, 
+                    width=self.hparams.crop_size,
+                    depth=self.hparams.crop_size_z,
                     always_apply=True,
                 ),
+                A.HorizontalFlip(p=0.5),
+                A.VerticalFlip(p=0.5),
                 A.Normalize(
                     max_pixel_value=65536,
                     mean=sum((0.485, 0.456, 0.406)) / 3,
@@ -75,7 +96,6 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         )
         self.val_transform = self.test_transform = A.Compose(
             [
-                A.ToFloat(max_value=65535.0),
                 A.Normalize(
                     max_pixel_value=65536,
                     mean=sum((0.485, 0.456, 0.406)) / 3,
@@ -90,13 +110,17 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         self.build_transforms()
 
         if self.train_dataset is None:
+            shared_storage = []
+            read_volumes(shared_storage, self.hparams.surface_volume_dirs)
+
             if (
                 self.val_dataset is None and 
                 self.hparams.val_dir_indices is not None and
                 self.hparams.val_dir_indices
             ):
                 dataset = InMemorySurfaceVolumeDataset(
-                    self.hparams.surface_volume_dirs,
+                    volumes_shared_storage=shared_storage,
+                    surface_volume_dirs=self.hparams.surface_volume_dirs,
                     transform=None,
                 )
                 train_indices = sorted(list(
@@ -117,7 +141,8 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 )
             else:
                 self.train_dataset = InMemorySurfaceVolumeDataset(
-                    self.hparams.surface_volume_dirs,
+                    volumes_shared_storage=shared_storage,
+                    surface_volume_dirs=self.hparams.surface_volume_dirs,
                     transform=self.train_transform,
                 )
                 self.val_dataset = None
@@ -125,8 +150,12 @@ class SurfaceVolumeDatamodule(LightningDataModule):
             self.test_dataset is None and 
             self.hparams.surface_volume_dirs_test is not None
         ):
+            shared_storage = []
+            read_volumes(shared_storage, self.hparams.surface_volume_dirs_test)
+
             self.test_dataset = InMemorySurfaceVolumeDataset(
-                self.hparams.surface_volume_dirs_test,
+                volumes_shared_storage=shared_storage,
+                surface_volume_dirs=self.hparams.surface_volume_dirs_test,
                 transform=self.test_transform,
             )
 
