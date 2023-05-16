@@ -130,7 +130,7 @@ class BaseModule(LightningModule):
         total_loss, losses, preds = self.compute_loss_preds(batch, **kwargs)
         for loss_name, loss in losses.items():
             self.log(
-                f'train_loss_{loss_name}', 
+                f'tl_{loss_name}', 
                 loss,
                 on_step=True,
                 on_epoch=True,
@@ -164,7 +164,7 @@ class BaseModule(LightningModule):
         assert dataloader_idx is None or dataloader_idx == 0, 'Only one val dataloader is supported.'
         for loss_name, loss in losses.items():
             self.log(
-                f'val_loss_{loss_name}', 
+                f'vl_{loss_name}', 
                 loss,
                 on_step=False,
                 on_epoch=True,
@@ -445,7 +445,7 @@ class UnetSwinModule(BaseModule):
         total_loss, losses, preds = self.compute_loss_preds(batch, **kwargs)
         for loss_name, loss in losses.items():
             self.log(
-                f'train_loss_{loss_name}', 
+                f'tl_{loss_name}', 
                 loss,
                 on_step=True,
                 on_epoch=True,
@@ -457,7 +457,7 @@ class UnetSwinModule(BaseModule):
             y, y_pred = self.extract_targets_and_probas_for_metric(preds, batch)
             metric.update(y_pred.flatten(), y.flatten())
             self.log(
-                f'train_{metric_name}',
+                f't_{metric_name}',
                 metric.compute(),
                 on_step=True,
                 on_epoch=True,
@@ -490,7 +490,7 @@ class UnetSwinModule(BaseModule):
         assert dataloader_idx is None or dataloader_idx == 0, 'Only one val dataloader is supported.'
         for loss_name, loss in losses.items():
             self.log(
-                f'val_loss_{loss_name}', 
+                f'vl_{loss_name}', 
                 loss,
                 on_step=False,
                 on_epoch=True,
@@ -514,7 +514,7 @@ class UnetSwinModule(BaseModule):
 
         for metric_name, metric in self.metrics['val_metrics'].items():
             self.log(
-                f'val_{metric_name}',
+                f'v_{metric_name}',
                 metric.compute(),
                 on_step=False,
                 on_epoch=True,
