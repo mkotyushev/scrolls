@@ -141,8 +141,6 @@ class InMemorySurfaceVolumeDataset:
         pathes = np.concatenate(pathes, axis=0)
         indices = np.concatenate(indices, axis=1)
 
-        print(volumes.shape, scroll_masks.shape, ir_images.shape, ink_masks.shape, pathes.shape, indices.shape)
-
         return volumes, scroll_masks, ir_images, ink_masks, pathes, indices
     
     def __getitem__(
