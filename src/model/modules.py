@@ -504,6 +504,7 @@ class UnetSwinModule(BaseModule):
             y, y_pred = self.extract_targets_and_probas_for_metric(preds, batch)
             if isinstance(metric, PredictionTargetPreviewAgg) and batch['indices'] is not None:
                 metric.update(
+                    batch['image'][..., 0],
                     y_pred, 
                     y, 
                     pathes=batch['path'],

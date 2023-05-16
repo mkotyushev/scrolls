@@ -116,7 +116,10 @@ def surface_volume_collate_fn(batch):
                 output[k].append(v)
     
     for k, v in output.items():
-        output[k] = default_collate(v)
+        if isinstance(v[0], str) or v[0].dtype == object:
+            output[k] = v
+        else:
+            output[k] = default_collate(v)
     
     return output
 
@@ -197,6 +200,7 @@ class PredictionTargetPreviewAgg(nn.Module):
 
     def update(
         self, 
+        input: torch.Tensor,
         probas: torch.Tensor, 
         target: torch.Tensor, 
         indices: torch.LongTensor, 
@@ -204,21 +208,28 @@ class PredictionTargetPreviewAgg(nn.Module):
         shape_patches: torch.LongTensor,
     ):
         # Get preview images
+        input = F.interpolate(
+            input.float(),
+            scale_factor=1 / self.preview_downscale, 
+            mode='bilinear',
+            align_corners=False, 
+        )
         probas = F.interpolate(
             probas.float().unsqueeze(1),  # interpolate as (N, C, H, W)
             scale_factor=1 / self.preview_downscale, 
             mode='bilinear', 
-            align_corners=False,
+            align_corners=False, 
         ).squeeze(1)
         target = F.interpolate(
             target.float().unsqueeze(1),  # interpolate as (N, C, H, W)
             scale_factor=1 / self.preview_downscale,
             mode='bilinear',
-            align_corners=False,
+            align_corners=False, 
         ).squeeze(1)
 
         # To CPU * types
-        probas, target, indices, shape_patches = \
+        input, probas, target, indices, shape_patches = \
+            input.cpu(), \
             probas.cpu(), \
             target.cpu(), \
             indices.cpu().long(), \
@@ -228,19 +239,24 @@ class PredictionTargetPreviewAgg(nn.Module):
 
         # Place patches on the preview images
         for i in range(probas.shape[0]):
-            if f'proba_{pathes[i]}' not in self.previews:
+            path = '/'.join(pathes[i].split('/')[-2:])
+            if f'proba_{path}' not in self.previews:
+                print(f'Creating preview for {path}')
                 shape = [
                     *shape_patches[i].tolist(),
                     *patch_size,
                 ]
-                self.previews[f'proba_{pathes[i]}'] = torch.zeros(shape, dtype=torch.uint8)
-                self.previews[f'target_{pathes[i]}'] = torch.zeros(shape, dtype=torch.uint8)
+                self.previews[f'input_{path}'] = torch.zeros(shape, dtype=torch.uint8)
+                self.previews[f'proba_{path}'] = torch.zeros(shape, dtype=torch.uint8)
+                self.previews[f'target_{path}'] = torch.zeros(shape, dtype=torch.uint8)
 
-            patch_index_h, patch_index_w = indices[i].tolist()
+            patch_index_w, patch_index_h = indices[i].tolist()
 
-            self.previews[f'proba_{pathes[i]}'][patch_index_h, patch_index_w] = \
+            self.previews[f'input_{path}'][patch_index_h, patch_index_w] = \
+                (input[i] * 255).byte()
+            self.previews[f'proba_{path}'][patch_index_h, patch_index_w] = \
                 (probas[i] * 255).byte()
-            self.previews[f'target_{pathes[i]}'][patch_index_h, patch_index_w] = \
+            self.previews[f'target_{path}'][patch_index_h, patch_index_w] = \
                 (target[i] * 255).byte()
     
     def compute(self):
