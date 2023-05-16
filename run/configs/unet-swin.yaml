@@ -106,7 +106,7 @@ data:
     val_dir_indices: 2
     crop_size: 256
     crop_size_z: 64
-    batch_size: 16
+    batch_size: 2
     num_workers: 10
     pin_memory: false
     prefetch_factor: 2
