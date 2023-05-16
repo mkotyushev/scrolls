@@ -525,10 +525,11 @@ class UnetSwinModule(BaseModule):
 
         for metric_name, metric in self.metrics['val_metrics'].items():
             if isinstance(metric, PredictionTargetPreviewAgg):
-                self.trainer.logger.experiment.log_image(
+                captions, previews = metric.compute()
+                self.trainer.logger.log_image(
                     key=f'v_{metric_name}',	
-                    images=metric.compute(),
-                    caption='Top: Output, Bottom: Input',
+                    images=previews,
+                    caption=captions,
                 )
             else:
                 self.log(

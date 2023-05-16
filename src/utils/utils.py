@@ -244,8 +244,8 @@ class PredictionTargetPreviewAgg(nn.Module):
                 (target[i] * 255).byte()
     
     def compute(self):
-        previews_unpatchified = []
-        for preview in self.previews.values():
+        captions, previews_unpatchified = [], []
+        for name, preview in self.previews.items():
             previews_unpatchified.append(
                 unpatchify(
                     preview.numpy(), 
@@ -255,6 +255,7 @@ class PredictionTargetPreviewAgg(nn.Module):
                     )
                 )
             )
+            captions.append(name)
 
-        return previews_unpatchified
+        return captions, previews_unpatchified
     
