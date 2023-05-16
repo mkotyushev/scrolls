@@ -1,7 +1,8 @@
 import random
 import cv2
 import numpy as np
-from albumentations import Rotate, DualTransform
+import torch
+from albumentations import Rotate, DualTransform, ImageOnlyTransform
 from albumentations.augmentations.crops import functional as F
 
 
@@ -29,7 +30,7 @@ class RotateX(Rotate):
         return img
 
 
-class RandomCropVolumeCopy(DualTransform):
+class RandomCropVolume(DualTransform):
     """Crop a random part of the input.
     If image, crop is 3D, if mask, crop is 2D.
 
@@ -57,7 +58,6 @@ class RandomCropVolumeCopy(DualTransform):
         if not is_mask:
             z = np.random.randint(d_start, max(img.shape[2] - self.depth, d_start + 1))
             img = img[:, :, z:min(z + self.depth, img.shape[2])]
-        img = img.copy()
         return img
 
     def apply_to_mask(self, img: np.ndarray, **params) -> np.ndarray:
@@ -121,3 +121,17 @@ class CenterCropVolume(DualTransform):
 
     def get_transform_init_args_names(self):
         return ("height", "width", "depth")
+
+
+class ToCHWD(ImageOnlyTransform):
+    def apply(self, img: torch.Tensor, **params) -> torch.Tensor:
+        # (D, H, W) (grayscale) ->
+        # (1, H, W, D)
+        return img.unsqueeze(0).permute(0, 2, 3, 1)
+
+
+class ToWritable(DualTransform):
+    def apply(self, img, **params):
+        img = img.copy()
+        img.setflags(write=True)
+        return img

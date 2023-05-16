@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from albumentations.pytorch import ToTensorV2
 
 from src.data.datasets import InMemorySurfaceVolumeDataset, SubsetWithTransformAndRepeats
-from src.data.transforms import RandomCropVolumeCopy, CenterCropVolume, RotateX
+from src.data.transforms import RandomCropVolume, CenterCropVolume, RotateX, ToCHWD, ToWritable
 from src.utils.utils import surface_volume_collate_fn
 
 
@@ -68,12 +68,13 @@ class SurfaceVolumeDatamodule(LightningDataModule):
     def build_transforms(self) -> None:
         self.train_transform = A.Compose(
             [
-                RandomCropVolumeCopy(
+                RandomCropVolume(
                     height=2 * self.hparams.crop_size, 
                     width=2 * self.hparams.crop_size, 
                     depth=2 * self.hparams.crop_size_z,
                     always_apply=True,
                 ),
+                ToWritable(),
                 RotateX(p=0.5, limit=10),
                 A.Rotate(p=0.5, limit=30),
                 A.RandomScale(p=0.5, scale_limit=0.2),
@@ -92,10 +93,12 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     always_apply=True,
                 ),
                 ToTensorV2(),
+                ToCHWD(always_apply=True),
             ],
         )
         self.val_transform = self.test_transform = A.Compose(
             [
+                ToWritable(),  # TODO: remove this
                 A.Normalize(
                     max_pixel_value=65536,
                     mean=sum((0.485, 0.456, 0.406)) / 3,
@@ -103,6 +106,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     always_apply=True,
                 ),
                 ToTensorV2(),
+                ToCHWD(always_apply=True),
             ],
         )
 
