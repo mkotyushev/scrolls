@@ -8,14 +8,15 @@ from lightning import LightningDataModule
 from torch.utils.data import DataLoader
 from albumentations.pytorch import ToTensorV2
 
-from src.data.datasets import InMemorySurfaceVolumeDataset, SubsetWithTransformAndRepeats
+from src.data.datasets import InMemorySurfaceVolumeDataset
 from src.data.transforms import RandomCropVolume, CenterCropVolume, RotateX, ToCHWD, ToWritable
 from src.utils.utils import surface_volume_collate_fn
 
 
 N_SLICES = 65
-def read_volumes(shared_storage, surface_volume_dirs):
+def read_data(surface_volume_dirs):
     # Volumes
+    volumes = []
     for root in surface_volume_dirs:
         root = Path(root)
         volume = []
@@ -27,7 +28,52 @@ def read_volumes(shared_storage, surface_volume_dirs):
                 )
             )
         volume = np.stack(volume).transpose(1, 2, 0)
-        shared_storage.append(volume)
+        volumes.append(volume)
+
+    # Masks: binary masks of scroll regions
+    scroll_masks = []
+    for root in surface_volume_dirs:
+        root = Path(root)
+        scroll_masks.append(
+            (
+                cv2.imread(
+                    str(root / 'mask.png'),
+                    cv2.IMREAD_GRAYSCALE
+                ) > 0
+            ).astype(np.uint8)
+        )
+
+    # (Optional) IR images: grayscale images
+    ir_images = []
+    for root in surface_volume_dirs:
+        root = Path(root)
+        path = root / 'ir.png'
+        if path.exists():
+            image = cv2.imread(
+                str(path),
+                cv2.IMREAD_GRAYSCALE
+            )
+            ir_images.append(image)
+    if len(ir_images) == 0:
+        ir_images = None
+    
+    # (Optional) labels: binary masks of ink
+    ink_masks = []
+    for root in surface_volume_dirs:
+        root = Path(root)
+        path = root / 'inklabels.png'
+        if path.exists():
+            image = (
+                cv2.imread(
+                    str(path),
+                    cv2.IMREAD_GRAYSCALE
+                ) > 0
+            ).astype(np.uint8)
+            ink_masks.append(image)
+    if len(ink_masks) == 0:
+        ink_masks = None
+
+    return volumes, scroll_masks, ir_images, ink_masks
 
 
 class SurfaceVolumeDatamodule(LightningDataModule):
@@ -99,6 +145,12 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         self.val_transform = self.test_transform = A.Compose(
             [
                 ToWritable(),  # TODO: remove this
+                CenterCropVolume(
+                    height=self.hparams.crop_size, 
+                    width=self.hparams.crop_size,
+                    depth=self.hparams.crop_size_z,
+                    always_apply=True,
+                ),
                 A.Normalize(
                     max_pixel_value=65536,
                     mean=sum((0.485, 0.456, 0.406)) / 3,
@@ -114,53 +166,74 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         self.build_transforms()
 
         if self.train_dataset is None:
-            shared_storage = []
-            read_volumes(shared_storage, self.hparams.surface_volume_dirs)
-
             if (
                 self.val_dataset is None and 
                 self.hparams.val_dir_indices is not None and
                 self.hparams.val_dir_indices
             ):
-                dataset = InMemorySurfaceVolumeDataset(
-                    volumes_shared_storage=shared_storage,
-                    surface_volume_dirs=self.hparams.surface_volume_dirs,
-                    transform=None,
-                )
-                train_indices = sorted(list(
-                    set(range(len(dataset))) - 
-                    set(self.hparams.val_dir_indices)
-                ))
-                self.train_dataset = SubsetWithTransformAndRepeats(
-                    dataset,
-                    train_indices,
+                # Train
+                train_surface_volume_dirs = [
+                    d for i, d in enumerate(self.hparams.surface_volume_dirs)
+                    if i not in self.hparams.val_dir_indices
+                ]
+                volumes, scroll_masks, ir_images, ink_masks = \
+                    read_data(train_surface_volume_dirs)
+                self.train_dataset = InMemorySurfaceVolumeDataset(
+                    volumes=volumes, 
+                    scroll_masks=scroll_masks, 
+                    pathes=train_surface_volume_dirs,
+                    ir_images=ir_images, 
+                    ink_masks=ink_masks,
                     transform=self.train_transform,
-                    n_repeat=200,
+                    patch_size=None,  # patches are generated in dataloader randomly
+                    n_repeat=200,  # sample patches from each volume 200 times
                 )
-                self.val_dataset = SubsetWithTransformAndRepeats(
-                    dataset,
-                    self.hparams.val_dir_indices,
+
+                val_surface_volume_dirs = [
+                    d for i, d in enumerate(self.hparams.surface_volume_dirs)
+                    if i in self.hparams.val_dir_indices
+                ]
+                volumes, scroll_masks, ir_images, ink_masks = \
+                    read_data(val_surface_volume_dirs)
+                self.val_dataset = InMemorySurfaceVolumeDataset(
+                    volumes=volumes, 
+                    scroll_masks=scroll_masks, 
+                    pathes=train_surface_volume_dirs,
+                    ir_images=ir_images, 
+                    ink_masks=ink_masks,
                     transform=self.val_transform,
-                    n_repeat=1,
+                    patch_size=self.hparams.crop_size,  # patch without overlap
+                    n_repeat=1,  # no repeats for validation
                 )
             else:
+                volumes, scroll_masks, ir_images, ink_masks = \
+                    read_data(self.hparams.surface_volume_dirs)
                 self.train_dataset = InMemorySurfaceVolumeDataset(
-                    volumes_shared_storage=shared_storage,
-                    surface_volume_dirs=self.hparams.surface_volume_dirs,
+                    volumes=volumes, 
+                    scroll_masks=scroll_masks, 
+                    pathes=self.hparams.surface_volume_dirs,
+                    ir_images=ir_images, 
+                    ink_masks=ink_masks,
                     transform=self.train_transform,
+                    patch_size=None,  # patches are generated in dataloader randomly
+                    n_repeat=200,  # sample patches from each volume 200 times
                 )
                 self.val_dataset = None
         if (
             self.test_dataset is None and 
             self.hparams.surface_volume_dirs_test is not None
         ):
-            shared_storage = []
-            read_volumes(shared_storage, self.hparams.surface_volume_dirs_test)
-
+            volumes, scroll_masks, ir_images, ink_masks = \
+                read_data(self.hparams.surface_volume_dirs_test)
             self.test_dataset = InMemorySurfaceVolumeDataset(
-                volumes_shared_storage=shared_storage,
-                surface_volume_dirs=self.hparams.surface_volume_dirs_test,
+                volumes=volumes, 
+                scroll_masks=scroll_masks, 
+                pathes=self.hparams.surface_volume_dirs_test,
+                ir_images=ir_images, 
+                ink_masks=ink_masks,
                 transform=self.test_transform,
+                patch_size=self.crop_size,  # patch without overlap
+                n_repeat=1,  # no repeats for test
             )
 
     def train_dataloader(self) -> DataLoader:
