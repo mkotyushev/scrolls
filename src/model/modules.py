@@ -2,13 +2,14 @@ import logging
 import timm
 import torch
 import torch.nn.functional as F
-from pytorch_lightning import LightningModule
+from torch.nn import ModuleDict
+from lightning import LightningModule
 from typing import Any, Dict, Optional, Union
-from torch import ModuleDict, Tensor
-from pytorch_lightning.cli import instantiate_class
+from torch import Tensor
+from lightning.pytorch.cli import instantiate_class
 from torchmetrics import Metric
 from torchmetrics.classification import BinaryFBetaScore
-from pytorch_lightning.utilities import grad_norm
+from lightning.pytorch.utilities import grad_norm
 from unittest.mock import patch
 
 from src.model.smp import Unet
@@ -97,11 +98,6 @@ class BaseModule(LightningModule):
             # TODO change to >= somehow
             if self.current_epoch == self.hparams.finetuning['unfreeze_before_epoch']:
                 self.unfreeze()
-
-    def on_train_start(self) -> None:
-        # Change dataloader num_workers to 10
-        # after cache is filled
-        self.trainer.datamodule.hparams.num_workers = self.trainer.datamodule.hparams.num_workers_saturated
 
     def unfreeze_only_selected(self):
         """
@@ -391,7 +387,7 @@ def build_segmentation(backbone_name):
     
     model = Unet(
         encoder=encoder,
-        encoder_channels=get_feature_channels(model, input_shape=(3, 256, 256, 64)),
+        encoder_channels=get_feature_channels(encoder, input_shape=(3, 256, 256, 64)),
         classes=2,
     )
 
@@ -446,12 +442,12 @@ class UnetSwinModule(BaseModule):
             {
                 'train_metrics': ModuleDict(
                     {
-                        'f0.5': BinaryFBetaScore(),
+                        'f05': BinaryFBetaScore(beta=0.5),
                     }
                 ),
                 'val_metrics': ModuleDict(
                     {
-                        'f0.5': BinaryFBetaScore(),
+                        'f05': BinaryFBetaScore(beta=0.5),
                     }
                 ),
             }

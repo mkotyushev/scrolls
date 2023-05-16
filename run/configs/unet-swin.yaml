@@ -1,24 +1,24 @@
 seed_everything: 0
 trainer:
   logger:
-    class_path: pytorch_lightning.loggers.WandbLogger
+    class_path: lightning.pytorch.loggers.WandbLogger
     init_args:
       project: scrolls
   callbacks:
-    - class_path: pytorch_lightning.callbacks.LearningRateMonitor
+    - class_path: lightning.pytorch.callbacks.LearningRateMonitor
       init_args:
         logging_interval: step
-    - class_path: pytorch_lightning.callbacks.ModelCheckpoint
+    - class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
         save_top_k: 1
-        monitor: val_f0.5
+        monitor: val_f05
         every_n_epochs: 1
         mode: max
         save_on_train_epoch_end: false
         save_last: true
 
   # limit_train_batches: 10
-  # limit_val_batches: 10
+  limit_val_batches: 0
   max_epochs: 100
   num_sanity_val_steps: 0
   accumulate_grad_batches: 1
@@ -60,7 +60,7 @@ trainer:
   devices: auto
   num_nodes: 1
 model:
-  class_path: src.model.patch_attention_classifier.PatchAttentionClassifier
+  class_path: src.model.modules.UnetSwinModule
   init_args:
     backbone_name: swinv2_tiny_window8_256.ms_in1k
     label_smoothing: 0.0
@@ -95,9 +95,10 @@ model:
     log_norm_verbose: true
     n_bootstrap: 0
     skip_nan: false
-    prog_bar_names: f0.5
+    prog_bar_names: 
+      - f05
 data:
-  class_path: src.data.visiomel_datamodule_emb.VisiomelDatamoduleEmb
+  class_path: src.data.datamodules.SurfaceVolumeDatamodule
   init_args:
     surface_volume_dirs: 
       - /workspace/data/fragments_downscaled_2/train/1
