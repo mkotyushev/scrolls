@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from albumentations.pytorch import ToTensorV2
 
 from src.data.datasets import InMemorySurfaceVolumeDataset
-from src.data.transforms import RandomCropVolume, CenterCropVolume, RotateX, ToCHWD, ToWritable
+from src.data.transforms import RandomCropVolumeInside2dMask, CenterCropVolume, RotateX, ToCHWD, ToWritable
 from src.utils.utils import surface_volume_collate_fn
 
 
@@ -114,11 +114,12 @@ class SurfaceVolumeDatamodule(LightningDataModule):
     def build_transforms(self) -> None:
         self.train_transform = A.Compose(
             [
-                RandomCropVolume(
+                RandomCropVolumeInside2dMask(
                     height=2 * self.hparams.crop_size, 
                     width=2 * self.hparams.crop_size, 
                     depth=2 * self.hparams.crop_size_z,
                     always_apply=True,
+                    crop_mask_index=0,
                 ),
                 ToWritable(),
                 RotateX(p=0.5, limit=10),

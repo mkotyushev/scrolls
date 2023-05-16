@@ -2,6 +2,7 @@ import random
 import cv2
 import numpy as np
 import torch
+from typing import Dict
 from albumentations import Rotate, DualTransform, ImageOnlyTransform
 from albumentations.augmentations.crops import functional as F
 
@@ -28,6 +29,69 @@ class RotateX(Rotate):
             interpolation=cv2.INTER_NEAREST
         )
         return img
+
+
+class RandomCropVolumeInside2dMask:
+    def __init__(
+        self,
+        height, 
+        width, 
+        depth,
+        always_apply=True,
+        p=1.0,
+        crop_mask_index=0,
+    ):
+        self.height = height
+        self.width = width
+        self.depth = depth
+        self.always_apply = always_apply
+        self.p = p
+        self.crop_mask_index = crop_mask_index
+    
+    def __call__(self, *args, force_apply: bool = False, **kwargs) -> Dict[str, np.ndarray]:
+        # Toss a coin
+        if not force_apply and not self.always_apply and random.random() > self.p:
+            return kwargs
+
+        # Get crop mask
+        crop_mask = kwargs['masks'][self.crop_mask_index]  # (H, W)
+
+        # Crop mask so that it is not on the border with
+        # height // 2, width // 2 offsets
+        crop_mask = crop_mask[
+            self.height // 2:-self.height // 2,
+            self.width // 2:-self.width // 2,
+        ]
+
+        # Get indices of non-zero elements
+        # TODO: consider caching / precomputing
+        nonzero_indices = np.nonzero(crop_mask)
+
+        # Get random index
+        random_index = random.randint(0, nonzero_indices[0].shape[0] - 1)
+
+        # Add height // 2, width // 2 offsets to center index
+        center_index = (
+            nonzero_indices[0][random_index] + self.height // 2,
+            nonzero_indices[1][random_index] + self.width // 2,
+        )
+
+        # Get crop indices
+        w_start = center_index[1] - self.width // 2
+        w_end = center_index[1] + self.width // 2
+        h_start = center_index[0] - self.height // 2
+        h_end = center_index[0] + self.height // 2
+
+        z_start_max = max(kwargs['image'].shape[2] - self.depth, 0)
+        z_start = np.random.randint(0, z_start_max) if z_start_max > 0 else 0
+        z_end = min(z_start + self.depth, kwargs['image'].shape[2])
+
+        # Crop data
+        kwargs['image'] = kwargs['image'][h_start:h_end, w_start:w_end, z_start:z_end]
+        for i in range(len(kwargs['masks'])):
+            kwargs['masks'][i] = kwargs['masks'][i][h_start:h_end, w_start:w_end]
+
+        return kwargs
 
 
 class RandomCropVolume(DualTransform):
