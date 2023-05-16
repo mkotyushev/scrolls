@@ -463,6 +463,7 @@ class UnetSwinModule(BaseModule):
                 on_step=True,
                 on_epoch=True,
                 prog_bar=True,
+                batch_size=batch['image'].shape[0],
             )
             metric.reset()
 
