@@ -18,7 +18,7 @@ from src.model.swin_transformer_v2_pseudo_3d import (
     map_pretrained_2d_to_pseudo_3d, 
     convert_to_grayscale
 )
-from src.utils.utils import FeatureExtractorWrapper, get_feature_channels, state_norm
+from src.utils.utils import FeatureExtractorWrapper, PredictionTargetPreviewAgg, get_feature_channels, state_norm
 
 
 logger = logging.getLogger(__name__)
@@ -435,6 +435,7 @@ class UnetSwinModule(BaseModule):
                 'val_metrics': ModuleDict(
                     {
                         'f05': BinaryFBetaScore(beta=0.5),
+                        'preview': PredictionTargetPreviewAgg(preview_downscale=8),
                     }
                 ),
             }
@@ -500,7 +501,16 @@ class UnetSwinModule(BaseModule):
             )
         for metric in self.metrics['val_metrics'].values():
             y, y_pred = self.extract_targets_and_probas_for_metric(preds, batch)
-            metric.update(y_pred.flatten(), y.flatten())
+            if isinstance(metric, PredictionTargetPreviewAgg) and batch['indices'] is not None:
+                metric.update(
+                    y_pred, 
+                    y, 
+                    pathes=batch['path'],
+                    indices=batch['indices'], 
+                    shape_patches=batch['shape_patches'],
+                )
+            else:
+                metric.update(y_pred.flatten(), y.flatten())
         return total_loss
 
     def predict_step(self, batch: Tensor, batch_idx: int, dataloader_idx: Optional[int] = None, **kwargs) -> Tensor:
@@ -513,13 +523,20 @@ class UnetSwinModule(BaseModule):
             return
 
         for metric_name, metric in self.metrics['val_metrics'].items():
-            self.log(
-                f'v_{metric_name}',
-                metric.compute(),
-                on_step=False,
-                on_epoch=True,
-                prog_bar=True,
-            )
+            if isinstance(metric, PredictionTargetPreviewAgg):
+                self.trainer.logger.experiment.log_image(
+                    key=f'v_{metric_name}',	
+                    images=metric.compute(),
+                    caption='Top: Output, Bottom: Input',
+                )
+            else:
+                self.log(
+                    f'v_{metric_name}',
+                    metric.compute(),
+                    on_step=False,
+                    on_epoch=True,
+                    prog_bar=True,
+                )
             metric.reset()
 
     def extract_targets_and_probas_for_metric(self, preds, batch):

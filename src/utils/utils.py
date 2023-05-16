@@ -1,5 +1,7 @@
+import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from collections import defaultdict
 from typing import Dict, Optional, Union
 from lightning import Trainer
@@ -10,6 +12,7 @@ from torch.utils.data import default_collate
 from weakref import proxy
 from timm.layers.format import nhwc_to, Format
 from timm.models import FeatureListNet
+from patchify import unpatchify
 
 
 class MyLightningCLI(LightningCLI):
@@ -95,19 +98,26 @@ class TempSetContextManager:
 
 def surface_volume_collate_fn(batch):
     """Collate function for surface volume dataset.
-    batch: list of dicts of np.ndarray
+    batch: list of dicts of key:str, value: np.ndarray | list | None
     output: dict of torch.Tensor
     """
     output = defaultdict(list)
     for sample in batch:
         for k, v in sample.items():
+            if v is None:
+                continue
+
             if k == 'image':
                 output[k].append(v)
             elif k == 'masks':
                 for i, mask in enumerate(v):
                     output[f'mask_{i}'].append(mask)
+            else:
+                output[k].append(v)
+    
     for k, v in output.items():
         output[k] = default_collate(v)
+    
     return output
 
 
@@ -173,3 +183,78 @@ def get_feature_channels(model: FeatureListNet | FeatureExtractorWrapper, input_
     result = tuple(y_.shape[channel_index] for y_ in y)
     model.train(is_training)
     return result
+
+
+class PredictionTargetPreviewAgg(nn.Module):
+    """Aggregate prediction and target patches to images with downscaling."""
+    def __init__(self, preview_downscale: int = 4):
+        super().__init__()
+        self.preview_downscale = preview_downscale
+        self.previews = {}
+
+    def reset(self):
+        self.previews = {}
+
+    def update(
+        self, 
+        probas: torch.Tensor, 
+        target: torch.Tensor, 
+        indices: torch.LongTensor, 
+        pathes: list[str], 
+        shape_patches: torch.LongTensor,
+    ):
+        # Get preview images
+        probas = F.interpolate(
+            probas.float().unsqueeze(1),  # interpolate as (N, C, H, W)
+            scale_factor=1 / self.preview_downscale, 
+            mode='bilinear', 
+            align_corners=False,
+        ).squeeze(1)
+        target = F.interpolate(
+            target.float().unsqueeze(1),  # interpolate as (N, C, H, W)
+            scale_factor=1 / self.preview_downscale,
+            mode='bilinear',
+            align_corners=False,
+        ).squeeze(1)
+
+        # To CPU * types
+        probas, target, indices, shape_patches = \
+            probas.cpu(), \
+            target.cpu(), \
+            indices.cpu().long(), \
+            shape_patches.cpu().long()
+
+        patch_size = probas.shape[-2:]
+
+        # Place patches on the preview images
+        for i in range(probas.shape[0]):
+            if f'proba_{pathes[i]}' not in self.previews:
+                shape = [
+                    *shape_patches[i].tolist(),
+                    *patch_size,
+                ]
+                self.previews[f'proba_{pathes[i]}'] = torch.zeros(shape, dtype=torch.uint8)
+                self.previews[f'target_{pathes[i]}'] = torch.zeros(shape, dtype=torch.uint8)
+
+            patch_index_h, patch_index_w = indices[i].long().tolist()
+
+            self.previews[f'proba_{pathes[i]}'][patch_index_h, patch_index_w] = \
+                (probas[i] * 255).byte()
+            self.previews[f'target_{pathes[i]}'][patch_index_h, patch_index_w] = \
+                (target[i] * 255).byte()
+    
+    def compute(self):
+        previews_unpatchified = []
+        for preview in self.previews.values():
+            previews_unpatchified.append(
+                unpatchify(
+                    preview.numpy(), 
+                    (
+                        preview.shape[0] * preview.shape[2],  # H' * H
+                        preview.shape[1] * preview.shape[3],  # W' * W
+                    )
+                )
+            )
+
+        return previews_unpatchified
+    
