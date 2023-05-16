@@ -241,7 +241,6 @@ class PredictionTargetPreviewAgg(nn.Module):
         for i in range(probas.shape[0]):
             path = '/'.join(pathes[i].split('/')[-2:])
             if f'proba_{path}' not in self.previews:
-                print(f'Creating preview for {path}')
                 shape = [
                     *shape_patches[i].tolist(),
                     *patch_size,
