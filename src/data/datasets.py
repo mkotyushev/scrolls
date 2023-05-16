@@ -95,7 +95,7 @@ class InMemorySurfaceVolumeDataset:
             
             # Pathes
             pathes_patches = np.full_like(
-                volume_patches[..., 0, 0],
+                volume_patches[..., 0, 0, 0],
                 self.pathes[i],
                 dtype=object
             )
