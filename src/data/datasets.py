@@ -1,9 +1,8 @@
+import cv2
 import numpy as np
 from pathlib import Path
-from PIL import Image
 from typing import Callable, List, Optional, Sequence, Tuple
 from torch.utils.data import Subset, Dataset
-Image.MAX_IMAGE_PIXELS = None
 
 
 class InMemorySurfaceVolumeDataset:
@@ -23,7 +22,12 @@ class InMemorySurfaceVolumeDataset:
         self.scroll_masks = []
         for root in self.surface_volume_dirs:
             root = Path(root)
-            self.scroll_masks.append(np.asarray(Image.open(root / 'mask.png')))
+            self.scroll_masks.append(
+                cv2.imread(
+                    str(root / 'mask.png'),
+                    cv2.IMREAD_GRAYSCALE
+                )
+            )
 
         # (Optional) IR images: grayscale images
         self.ir_images = []
@@ -32,7 +36,10 @@ class InMemorySurfaceVolumeDataset:
             path = root / 'ir.png'
             image = None
             if path.exists():
-                image = np.asarray(Image.open(path))
+                image = cv2.imread(
+                    str(path),
+                    cv2.IMREAD_GRAYSCALE
+                )
             self.ir_images.append(image)
         
         # (Optional) labels: binary masks of ink
@@ -42,7 +49,10 @@ class InMemorySurfaceVolumeDataset:
             path = root / 'inklabels.png'
             image = None
             if path.exists():
-                image = np.asarray(Image.open(path))
+                image = cv2.imread(
+                    str(path),
+                    cv2.IMREAD_GRAYSCALE
+                )
             self.ink_masks.append(image)
 
     def __len__(self) -> int:
@@ -58,11 +68,11 @@ class InMemorySurfaceVolumeDataset:
         Optional[np.ndarray],  # optional labels
     ]:
         image = self.volumes[idx]
-        masks = [self.scroll_masks[idx]]
+        masks = [(self.scroll_masks[idx] > 0).astype(np.uint8)]
         if self.ir_images[idx] is not None:
             masks.append(self.ir_images[idx])
         if self.ink_masks[idx] is not None:
-            masks.append(self.ink_masks[idx])
+            masks.append((self.ink_masks[idx] > 0).astype(np.uint8))
 
         if self.transform is not None:
             return self.transform(image=image, masks=masks)
