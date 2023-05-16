@@ -642,3 +642,9 @@ def map_pretrained_2d_to_pseudo_3d(model_2d, model_pseudo_3d):
             raise ValueError(f'{key} not found in model_pseudo_3d_state_dict')
     model_pseudo_3d.load_state_dict(model_pseudo_3d_state_dict)
     return model_pseudo_3d
+
+
+def convert_to_grayscale(model):
+    model.patch_embed.proj.in_channels = 1
+    model.patch_embed.proj.weight = nn.Parameter(model.patch_embed.proj.weight.mean(dim=1, keepdim=True))
+    return model

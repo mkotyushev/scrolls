@@ -13,7 +13,11 @@ from lightning.pytorch.utilities import grad_norm
 from unittest.mock import patch
 
 from src.model.smp import Unet
-from src.model.swin_transformer_v2_pseudo_3d import SwinTransformerV2Pseudo3d, map_pretrained_2d_to_pseudo_3d
+from src.model.swin_transformer_v2_pseudo_3d import (
+    SwinTransformerV2Pseudo3d, 
+    map_pretrained_2d_to_pseudo_3d, 
+    convert_to_grayscale
+)
 from src.utils.utils import FeatureExtractorWrapper, get_feature_channels, state_norm
 
 
@@ -383,13 +387,18 @@ def build_segmentation(backbone_name):
             **backbone_name_to_params[backbone_name],
         )
     encoder = map_pretrained_2d_to_pseudo_3d(encoder_2d, encoder_pseudo_3d)
+    encoder = convert_to_grayscale(encoder)
     encoder = FeatureExtractorWrapper(encoder)
     
     model = Unet(
         encoder=encoder,
-        encoder_channels=get_feature_channels(encoder, input_shape=(3, 256, 256, 64)),
+        encoder_channels=get_feature_channels(
+            encoder, 
+            input_shape=(1, *backbone_name_to_params[backbone_name]['img_size'])
+        ),
         classes=2,
     )
+    model = torch.compile(model)
 
     return model
 
