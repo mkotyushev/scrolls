@@ -629,7 +629,7 @@ def map_pretrained_2d_to_pseudo_3d(model_2d, model_pseudo_3d):
                 print(f'{key}: {value.shape} -> {model_pseudo_3d_state_dict[key].shape}')
                 if key == 'patch_embed.proj.weight':
                     model_pseudo_3d_state_dict[key] = value.unsqueeze(-1).repeat(1, 1, 1, 1, model_pseudo_3d_state_dict[key].shape[-1])
-                elif key == 'layers.0.blocks.0.attn.cpb_mlp.0.weight':
+                elif key == 'layers_0.blocks.0.attn.cpb_mlp.0.weight':
                     model_pseudo_3d_state_dict[key][:, :2] = value
                     model_pseudo_3d_state_dict[key][:, -1] = value.mean(dim=1)
                 else:
