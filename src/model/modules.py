@@ -1,13 +1,19 @@
 import logging
+import timm
 import torch
+import torch.nn.functional as F
 from pytorch_lightning import LightningModule
 from typing import Any, Dict, Optional, Union
-from torch import Tensor
+from torch import ModuleDict, Tensor
 from pytorch_lightning.cli import instantiate_class
 from torchmetrics import Metric
+from torchmetrics.classification import BinaryFBetaScore
 from pytorch_lightning.utilities import grad_norm
+from unittest.mock import patch
 
-from utils.utils import state_norm
+from src.model.smp import Unet
+from src.model.swin_transformer_v2_pseudo_3d import SwinTransformerV2Pseudo3d, map_pretrained_2d_to_pseudo_3d
+from src.utils.utils import FeatureExtractorWrapper, get_feature_channels, state_norm
 
 
 logger = logging.getLogger(__name__)
@@ -357,3 +363,187 @@ class BaseModule(LightningModule):
         else:
             if 'state_2.0_norm_total' in norms:
                 self.log('state_2.0_norm_total', norms['state_2.0_norm_total'])
+
+
+backbone_name_to_params = {
+    'swinv2_tiny_window8_256.ms_in1k': {
+        'window_size': (8, 8, 16),
+        'img_size': (256, 256, 64),
+    }
+}
+
+
+def build_segmentation(backbone_name):
+    encoder_2d = timm.create_model(
+        backbone_name, 
+        features_only=True,
+        pretrained=True,
+    )
+    with patch('timm.models.swin_transformer_v2.SwinTransformerV2', SwinTransformerV2Pseudo3d):
+        encoder_pseudo_3d = timm.create_model(
+            backbone_name, 
+            features_only=True,
+            pretrained=False,
+            **backbone_name_to_params[backbone_name],
+        )
+    encoder = map_pretrained_2d_to_pseudo_3d(encoder_2d, encoder_pseudo_3d)
+    encoder = FeatureExtractorWrapper(encoder)
+    
+    model = Unet(
+        encoder=encoder,
+        encoder_channels=get_feature_channels(model, input_shape=(3, 256, 256, 64)),
+        classes=2,
+    )
+
+    return model
+
+
+class UnetSwinModule(BaseModule):
+    def __init__(
+        self, 
+        backbone_name: str = 'swinv2_tiny_window8_256.ms_in1k',
+        label_smoothing: float = 0.0,
+        optimizer_init: Optional[Dict[str, Any]] = None,
+        lr_scheduler_init: Optional[Dict[str, Any]] = None,
+        pl_lrs_cfg: Optional[Dict[str, Any]] = None,
+        finetuning: Optional[Dict[str, Any]] = None,
+        log_norm_verbose: bool = False,
+        lr_layer_decay: Union[float, Dict[str, float]] = 1.0,
+        n_bootstrap: int = 1000,
+        skip_nan: bool = False,
+        prog_bar_names: Optional[list] = None,
+    ):
+        super().__init__(
+            optimizer_init=optimizer_init,
+            lr_scheduler_init=lr_scheduler_init,
+            pl_lrs_cfg=pl_lrs_cfg,
+            finetuning=finetuning,
+            log_norm_verbose=log_norm_verbose,
+            lr_layer_decay=lr_layer_decay,
+            n_bootstrap=n_bootstrap,
+            skip_nan=skip_nan,
+            prog_bar_names=prog_bar_names,
+        )
+        self.save_hyperparameters()
+        self.model = build_segmentation(backbone_name)
+
+    def compute_loss_preds(self, batch, *args, **kwargs):
+        """Compute losses and predictions."""
+        preds = self.model(batch['image'])
+        losses = {
+            'bce': F.binary_cross_entropy_with_logits(
+                preds,
+                batch['mask_2'].float(),
+                reduction='mean',
+            ),
+        }
+        total_loss = sum(losses.values())
+        return total_loss, losses, preds
+
+    def configure_metrics(self):
+        """Configure task-specific metrics."""
+        self.metrics = ModuleDict(
+            {
+                'train_metrics': ModuleDict(
+                    {
+                        'f0.5': BinaryFBetaScore(),
+                    }
+                ),
+                'val_metrics': ModuleDict(
+                    {
+                        'f0.5': BinaryFBetaScore(),
+                    }
+                ),
+            }
+        )
+        self.cat_metrics = None
+
+    def training_step(self, batch, batch_idx, **kwargs):
+        total_loss, losses, preds = self.compute_loss_preds(batch, **kwargs)
+        for loss_name, loss in losses.items():
+            self.log(
+                f'train_loss_{loss_name}', 
+                loss,
+                on_step=True,
+                on_epoch=True,
+                prog_bar=True,
+                batch_size=batch[0].shape[0],
+            )
+        
+        for metric_name, metric in self.metrics['train_metrics'].items():
+            y, y_pred = self.extract_targets_and_probas_for_metric(preds, batch)
+            metric.update(y_pred[:, 1, ...].flatten(), y.flatten())
+            self.log(
+                f'train_{metric_name}',
+                metric.compute(),
+                on_step=True,
+                on_epoch=True,
+                prog_bar=True,
+            )
+            metric.reset()
+
+        # Handle nan in loss
+        has_nan = False
+        if torch.isnan(total_loss):
+            has_nan = True
+            logger.warning(
+                f'Loss is nan at epoch {self.current_epoch} '
+                f'step {self.global_step}.'
+            )
+        for loss_name, loss in losses.items():
+            if torch.isnan(loss):
+                has_nan = True
+                logger.warning(
+                    f'Loss {loss_name} is nan at epoch {self.current_epoch} '
+                    f'step {self.global_step}.'
+                )
+        if has_nan:
+            return None
+        
+        return total_loss
+    
+    def validation_step(self, batch: Tensor, batch_idx: int, dataloader_idx: Optional[int] = None, **kwargs) -> Tensor:
+        total_loss, losses, preds = self.compute_loss_preds(batch, **kwargs)
+        assert dataloader_idx is None or dataloader_idx == 0, 'Only one val dataloader is supported.'
+        for loss_name, loss in losses.items():
+            self.log(
+                f'val_loss_{loss_name}', 
+                loss,
+                on_step=False,
+                on_epoch=True,
+                prog_bar=True,
+                add_dataloader_idx=False,
+                batch_size=batch[0].shape[0],
+            )
+        for metric in self.metrics['val_metrics'].values():
+            y, y_pred = self.extract_targets_and_probas_for_metric(preds, batch)
+            metric.update(y_pred[:, 1, ...].flatten(), y.flatten())
+        return total_loss
+
+    def predict_step(self, batch: Tensor, batch_idx: int, dataloader_idx: Optional[int] = None, **kwargs) -> Tensor:
+        _, _, preds = self.compute_loss_preds(batch, **kwargs)
+        return preds
+
+    def on_validation_epoch_end(self) -> None:
+        """Called in the validation loop at the very end of the epoch."""
+        if self.metrics is None:
+            return
+
+        for metric_name, metric in self.metrics['val_metrics'].items():
+            self.log(
+                f'val_{metric_name}',
+                metric.compute(),
+                on_step=False,
+                on_epoch=True,
+                prog_bar=True,
+            )
+            metric.reset()
+
+    def extract_targets_and_probas_for_metric(self, preds, batch):
+        """Extract preds and targets from batch.
+        Could be overriden for custom batch / prediction structure.
+        """
+        y, y_pred = batch['mask_2'].detach(), preds.detach().float()
+        y, y_pred = self.remove_nans(y, y_pred)
+        y_pred = torch.softmax(y_pred, dim=1)
+        return y, y_pred
