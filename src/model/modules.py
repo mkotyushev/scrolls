@@ -235,38 +235,9 @@ class BaseModule(LightningModule):
 
     def on_train_epoch_end(self) -> None:
         """Called in the training loop at the very end of the epoch."""
-        if self.metrics is None:
-            return
-        assert self.cat_metrics is not None
-
-        self.log_metrics_and_reset(
-            'train',
-            on_step=False,
-            on_epoch=True,
-            prog_bar_names=self.hparams.prog_bar_names,
-            reset=True,
-        )
     
     def on_validation_epoch_end(self) -> None:
         """Called in the validation loop at the very end of the epoch."""
-        if self.metrics is None:
-            return
-        assert self.cat_metrics is not None
-
-        self.log_metrics_and_reset(
-            'val',
-            on_step=False,
-            on_epoch=True,
-            prog_bar_names=self.hparams.prog_bar_names,
-            reset=False,
-        )
-        self.log_metrics_and_reset(
-            'val_ds',
-            on_step=False,
-            on_epoch=True,
-            prog_bar_names=self.hparams.prog_bar_names,
-            reset=True,
-        )
 
     def get_lr_decayed(self, lr, layer_index, layer_name):
         """
@@ -369,6 +340,9 @@ backbone_name_to_params = {
     'swinv2_tiny_window8_256.ms_in1k': {
         'window_size': (8, 8, 16),
         'img_size': (256, 256, 64),
+        # TODO: SWIN v2 has patch size 4, upsampling at 
+        # the last step degrades quality
+        'upsampling': 4,
     }
 }
 
@@ -384,7 +358,8 @@ def build_segmentation(backbone_name):
             backbone_name, 
             features_only=True,
             pretrained=False,
-            **backbone_name_to_params[backbone_name],
+            window_size=backbone_name_to_params[backbone_name]['window_size'],
+            img_size=backbone_name_to_params[backbone_name]['img_size'],
         )
     encoder = map_pretrained_2d_to_pseudo_3d(encoder_2d, encoder_pseudo_3d)
     encoder = convert_to_grayscale(encoder)
@@ -396,7 +371,8 @@ def build_segmentation(backbone_name):
             encoder, 
             input_shape=(1, *backbone_name_to_params[backbone_name]['img_size'])
         ),
-        classes=2,
+        classes=1,
+        upsampling=backbone_name_to_params[backbone_name]['upsampling'],
     )
     model = torch.compile(model)
 
@@ -437,8 +413,8 @@ class UnetSwinModule(BaseModule):
         preds = self.model(batch['image'])
         losses = {
             'bce': F.binary_cross_entropy_with_logits(
-                preds,
-                batch['mask_2'].float(),
+                preds.squeeze(1).float().flatten(),
+                batch['mask_2'].float().flatten(),
                 reduction='mean',
             ),
         }
@@ -472,12 +448,12 @@ class UnetSwinModule(BaseModule):
                 on_step=True,
                 on_epoch=True,
                 prog_bar=True,
-                batch_size=batch[0].shape[0],
+                batch_size=batch['image'].shape[0],
             )
         
         for metric_name, metric in self.metrics['train_metrics'].items():
             y, y_pred = self.extract_targets_and_probas_for_metric(preds, batch)
-            metric.update(y_pred[:, 1, ...].flatten(), y.flatten())
+            metric.update(y_pred.flatten(), y.flatten())
             self.log(
                 f'train_{metric_name}',
                 metric.compute(),
@@ -518,11 +494,11 @@ class UnetSwinModule(BaseModule):
                 on_epoch=True,
                 prog_bar=True,
                 add_dataloader_idx=False,
-                batch_size=batch[0].shape[0],
+                batch_size=batch['image'].shape[0],
             )
         for metric in self.metrics['val_metrics'].values():
             y, y_pred = self.extract_targets_and_probas_for_metric(preds, batch)
-            metric.update(y_pred[:, 1, ...].flatten(), y.flatten())
+            metric.update(y_pred.flatten(), y.flatten())
         return total_loss
 
     def predict_step(self, batch: Tensor, batch_idx: int, dataloader_idx: Optional[int] = None, **kwargs) -> Tensor:
@@ -550,5 +526,5 @@ class UnetSwinModule(BaseModule):
         """
         y, y_pred = batch['mask_2'].detach(), preds.detach().float()
         y, y_pred = self.remove_nans(y, y_pred)
-        y_pred = torch.softmax(y_pred, dim=1)
+        y_pred = torch.sigmoid(y_pred).squeeze(1)
         return y, y_pred

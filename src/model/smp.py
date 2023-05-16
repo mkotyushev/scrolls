@@ -158,7 +158,10 @@ class Attention(nn.Module):
 class SegmentationHead(nn.Sequential):
     def __init__(self, in_channels, out_channels, kernel_size=3, activation=None, upsampling=1):
         conv2d = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=kernel_size // 2)
-        upsampling = nn.UpsamplingBilinear2d(scale_factor=upsampling) if upsampling > 1 else nn.Identity()
+        # TODO try to aviod using upsampling at the last step
+        # TODO check how to use nn.UpsamplingBilinear2d deterministically
+        # instead of nn.UpsamplingNearest2d
+        upsampling = nn.UpsamplingNearest2d(scale_factor=upsampling) if upsampling > 1 else nn.Identity()
         activation = Activation(activation)
         super().__init__(conv2d, upsampling, activation)
 
@@ -390,6 +393,7 @@ class Unet(SegmentationModel):
         self,
         encoder,
         encoder_channels,
+        upsampling,
         decoder_use_batchnorm: bool = True,
         decoder_channels: List[int] | str = (256, 128, 64),
         decoder_attention_type: Optional[str] = None,
@@ -416,7 +420,7 @@ class Unet(SegmentationModel):
             out_channels=classes,
             activation=activation,
             kernel_size=3,
-            upsampling=4,
+            upsampling=upsampling,
         )
 
         if aux_params is not None:
