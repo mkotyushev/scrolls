@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 from collections import defaultdict
 from typing import Dict, Optional, Union
 from lightning import Trainer
@@ -7,6 +8,8 @@ from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger, TensorBoardLogger
 from torch.utils.data import default_collate
 from weakref import proxy
+from timm.layers.format import nhwc_to, Format
+from timm.models import FeatureListNet
 
 
 class MyLightningCLI(LightningCLI):
@@ -139,3 +142,34 @@ def state_norm(module: torch.nn.Module, norm_type: Union[float, int, str], group
         total_norm = torch.tensor(list(norms.values())).norm(norm_type)
         norms[f"state_{norm_type}_norm_total"] = total_norm
     return norms
+
+
+class FeatureExtractorWrapper(nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+        self.output_stride = 32
+
+    def __iter__(self):
+        return iter(self.model)
+    
+    def forward(self, x):
+        return [nhwc_to(y, Format('NCHW')) for y in self.model(x)]
+
+
+def get_num_layers(model: FeatureListNet):
+    return len([key for key in model if 'layers' in key])
+
+
+def get_feature_channels(model: FeatureListNet | FeatureExtractorWrapper, input_shape):
+    is_training = model.training
+    model.eval()
+    x = torch.randn(1, *input_shape)
+    y = model(x)
+    if isinstance(model, FeatureExtractorWrapper):
+        channel_index = 1
+    else:
+        channel_index = 3
+    result = tuple(y_.shape[channel_index] for y_ in y)
+    model.train(is_training)
+    return result
