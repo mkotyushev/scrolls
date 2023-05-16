@@ -530,6 +530,7 @@ class UnetSwinModule(BaseModule):
                     key=f'v_{metric_name}',	
                     images=previews,
                     caption=captions,
+                    step=self.current_epoch,
                 )
             else:
                 self.log(

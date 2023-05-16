@@ -123,7 +123,7 @@ class InMemorySurfaceVolumeDataset:
                 np.arange(volume_patches.shape[0]),
                 np.arange(volume_patches.shape[1]),
             )
-            indices_patches = np.stack(indices_patches).transpose(1, 2, 0)
+            indices_patches = np.stack(indices_patches, axis=-1)
             
             # Flatten patches
             volume_patches = volume_patches.reshape(-1, *volume_patches.shape[-3:])
@@ -134,7 +134,7 @@ class InMemorySurfaceVolumeDataset:
                 ink_mask_patches = ink_mask_patches.reshape(-1, *ink_mask_patches.shape[-2:])
             pathes_patches = pathes_patches.flatten()
             shape_patches_patches = shape_patches_patches.reshape(-1, *shape_patches_patches.shape[-1:])
-            indices_patches = indices_patches.reshape(-1, 2)
+            indices_patches = indices_patches.reshape(-1, *indices_patches.shape[-1:])
 
             # Drop empty patches (no 1s in scroll mask)
             mask = (scroll_mask_patches > 0).any(axis=(-1, -2))

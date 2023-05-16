@@ -199,7 +199,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 self.val_dataset = InMemorySurfaceVolumeDataset(
                     volumes=volumes, 
                     scroll_masks=scroll_masks, 
-                    pathes=train_surface_volume_dirs,
+                    pathes=val_surface_volume_dirs,
                     ir_images=ir_images, 
                     ink_masks=ink_masks,
                     transform=self.val_transform,

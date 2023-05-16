@@ -236,7 +236,7 @@ class PredictionTargetPreviewAgg(nn.Module):
                 self.previews[f'proba_{pathes[i]}'] = torch.zeros(shape, dtype=torch.uint8)
                 self.previews[f'target_{pathes[i]}'] = torch.zeros(shape, dtype=torch.uint8)
 
-            patch_index_h, patch_index_w = indices[i].long().tolist()
+            patch_index_h, patch_index_w = indices[i].tolist()
 
             self.previews[f'proba_{pathes[i]}'][patch_index_h, patch_index_w] = \
                 (probas[i] * 255).byte()
