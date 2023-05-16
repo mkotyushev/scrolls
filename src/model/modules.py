@@ -374,7 +374,9 @@ def build_segmentation(backbone_name):
         classes=1,
         upsampling=backbone_name_to_params[backbone_name]['upsampling'],
     )
-    model = torch.compile(model)
+    # TODO: compile model, now blows up with
+    # AssertionError: expected size 64==64, stride 4096==1 at dim=1
+    # model = torch.compile(model)
 
     return model
 
