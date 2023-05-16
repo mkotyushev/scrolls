@@ -116,6 +116,17 @@ class InMemorySurfaceVolumeDataset:
                 ink_mask_patches = ink_mask_patches.reshape(-1, *ink_mask_patches.shape[-2:])
             pathes_patches = pathes_patches.flatten()
             indices_patches = indices_patches.reshape(-1, 2)
+
+            # Drop empty patches (no 1s in scroll mask)
+            mask = (scroll_mask_patches > 0).any(axis=(-1, -2))
+            volume_patches = volume_patches[mask]
+            scroll_mask_patches = scroll_mask_patches[mask]
+            if ir_image_patches is not None:
+                ir_image_patches = ir_image_patches[mask]
+            if ink_mask_patches is not None:
+                ink_mask_patches = ink_mask_patches[mask]
+            pathes_patches = pathes_patches[mask]
+            indices_patches = indices_patches[mask]
             
             # Append
             volumes.append(volume_patches)
