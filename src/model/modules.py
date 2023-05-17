@@ -446,7 +446,11 @@ class SegmentationModule(BaseModule):
         )
         self.save_hyperparameters()
         self.model = build_segmentation(backbone_name, type_, agg=agg)
-        self.unfreeze_only_selected()
+
+        if finetuning is not None and finetuning['unfreeze_before_epoch'] == 0:
+            self.unfreeze()
+        else:
+            self.unfreeze_only_selected()
 
     def compute_loss_preds(self, batch, *args, **kwargs):
         """Compute losses and predictions."""
