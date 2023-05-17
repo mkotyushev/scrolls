@@ -14,6 +14,7 @@ from src.utils.utils import surface_volume_collate_fn
 
 
 N_SLICES = 65
+MAX_PIXEL_VALUE = 65536
 def read_data(surface_volume_dirs):
     # Volumes
     volumes = []
@@ -76,6 +77,25 @@ def read_data(surface_volume_dirs):
     return volumes, scroll_masks, ir_images, ink_masks
 
 
+def calc_mean_std(volumes, scroll_masks):
+    # mean, std across all volumes
+    sums, sums_sq, ns = [], [], []
+    for volume, scroll_mask in zip(volumes, scroll_masks):
+        scroll_mask = scroll_mask > 0
+        sums.append((volume[scroll_mask] / MAX_PIXEL_VALUE).sum())
+        sums_sq.append(((volume[scroll_mask] / MAX_PIXEL_VALUE) ** 2).sum())
+        ns.append(scroll_mask.sum() * N_SLICES)
+    mean = sum(sums) / sum(ns)
+
+    sum_sq = 0
+    for sum_, sum_sq_, n in zip(sums, sums_sq, ns):
+        scroll_mask = scroll_mask > 0
+        sum_sq += (sum_sq_ - 2 * sum_ * mean + mean ** 2 * n)
+    std = np.sqrt(sum_sq / sum(ns))
+
+    return mean, std
+
+
 class SurfaceVolumeDatamodule(LightningDataModule):
     """Base datamodule for surface volume data."""
     def __init__(
@@ -85,6 +105,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         val_dir_indices: Optional[List[int] | int] = None,
         crop_size: int = 256,
         crop_size_z: int = 48,
+        use_imagenet_stats: bool = True,
         batch_size: int = 32,
         num_workers: int = 0,
         pin_memory: bool = False,
@@ -108,6 +129,10 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         self.train_transform = None
         self.val_transform = None
         self.test_transform = None
+
+        # Imagenets mean and std
+        self.train_volume_mean = sum((0.485, 0.456, 0.406)) / 3
+        self.train_volume_std = sum((0.229, 0.224, 0.225)) / 3
 
         self.collate_fn = surface_volume_collate_fn
 
@@ -135,8 +160,8 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 A.VerticalFlip(p=0.5),
                 A.Normalize(
                     max_pixel_value=65536,
-                    mean=sum((0.485, 0.456, 0.406)) / 3,
-                    std=sum((0.229, 0.224, 0.225)) / 3,
+                    mean=self.train_volume_mean,
+                    std=self.train_volume_std,
                     always_apply=True,
                 ),
                 ToTensorV2(),
@@ -154,8 +179,8 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 ),
                 A.Normalize(
                     max_pixel_value=65536,
-                    mean=sum((0.485, 0.456, 0.406)) / 3,
-                    std=sum((0.229, 0.224, 0.225)) / 3,
+                    mean=self.train_volume_mean,
+                    std=self.train_volume_std,
                     always_apply=True,
                 ),
                 ToTensorV2(),
@@ -179,6 +204,12 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 ]
                 volumes, scroll_masks, ir_images, ink_masks = \
                     read_data(train_surface_volume_dirs)
+                
+                # Update mean and std
+                if not self.hparams.use_imagenet_stats:
+                    self.train_volume_mean, self.train_volume_std = \
+                        calc_mean_std(volumes, scroll_masks)
+
                 self.train_dataset = InMemorySurfaceVolumeDataset(
                     volumes=volumes, 
                     scroll_masks=scroll_masks, 
@@ -209,6 +240,12 @@ class SurfaceVolumeDatamodule(LightningDataModule):
             else:
                 volumes, scroll_masks, ir_images, ink_masks = \
                     read_data(self.hparams.surface_volume_dirs)
+                
+                # Update mean and std
+                if not self.hparams.use_imagenet_stats:
+                    self.train_volume_mean, self.train_volume_std = \
+                        calc_mean_std(volumes, scroll_masks)
+
                 self.train_dataset = InMemorySurfaceVolumeDataset(
                     volumes=volumes, 
                     scroll_masks=scroll_masks, 
@@ -236,6 +273,19 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 patch_size=self.crop_size,  # patch without overlap
                 n_repeat=1,  # no repeats for test
             )
+        
+        # To rebuild normalization
+        self.reset_transforms()
+
+    def reset_transforms(self):
+        self.build_transforms()
+
+        if self.train_dataset is not None:
+            self.train_dataset.transform = self.train_transform
+        if self.val_dataset is not None:
+            self.val_dataset.transform = self.val_transform
+        if self.test_dataset is not None:
+            self.test_dataset.transform = self.test_transform
 
     def train_dataloader(self) -> DataLoader:
         return DataLoader(
