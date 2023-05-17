@@ -62,7 +62,7 @@ model:
   init_args:
     type_: 2d_agg
     agg: max
-    backbone_name: swinv2_tiny_window8_256.ms_in1k
+    backbone_name: null
     pos_weight: 5.0
     label_smoothing: 0.0
     optimizer_init: 
@@ -74,8 +74,16 @@ model:
     lr_scheduler_init:
       class_path: src.utils.lr_scheduler.PiecewiceFactorsLRScheduler
       init_args:
-        milestones: [0, 0.1, 1.0]
+        milestones: [0, 0.01, 0.1, 0.2, 1.0]
         pieces:
+          - class_path: src.utils.lr_scheduler.LinearLRSchedulerPiece
+            init_args:
+              start_lr: 1e-2
+              stop_lr: 1
+          - class_path: src.utils.lr_scheduler.CosineLRSchedulerPiece
+            init_args:
+              start_lr: 1
+              stop_lr: 1e-2
           - class_path: src.utils.lr_scheduler.LinearLRSchedulerPiece
             init_args:
               start_lr: 1e-2
@@ -88,7 +96,7 @@ model:
       interval: step
       frequency: 1
     finetuning:
-      unfreeze_before_epoch: 5000
+      unfreeze_before_epoch: 10
       unfreeze_layer_names_contains:
         - decoder
         - segmentation_head
@@ -113,7 +121,7 @@ data:
     img_size_z: 64
     use_imagenet_stats: true
     use_rotate_x: false
-    batch_size: 8
+    batch_size: null
     num_workers: 8
     pin_memory: false
     prefetch_factor: 2
