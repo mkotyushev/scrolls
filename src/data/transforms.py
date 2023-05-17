@@ -3,8 +3,9 @@ import cv2
 import numpy as np
 import torch
 from typing import Dict
-from albumentations import Rotate, DualTransform, ImageOnlyTransform
-from albumentations.augmentations.crops import functional as F
+from albumentations import Rotate, DualTransform, ImageOnlyTransform, Resize
+from albumentations.augmentations.crops import functional as F_crops
+from albumentations.augmentations.geometric import functional as F_geometric
 
 
 class RotateX(Rotate):
@@ -123,7 +124,7 @@ class RandomCropVolume(DualTransform):
         self.depth = depth
 
     def apply(self, img, h_start=0, w_start=0, d_start=0, is_mask=False, **params):
-        img = F.random_crop(img, self.height, self.width, h_start, w_start)
+        img = F_crops.random_crop(img, self.height, self.width, h_start, w_start)
         if not is_mask:
             z = np.random.randint(d_start, max(img.shape[2] - self.depth, d_start + 1))
             img = img[:, :, z:min(z + self.depth, img.shape[2])]
@@ -133,10 +134,10 @@ class RandomCropVolume(DualTransform):
         return self.apply(img, is_mask=True, **{k: cv2.INTER_NEAREST if k == "interpolation" else v for k, v in params.items()})
 
     def apply_to_bbox(self, bbox, **params):
-        return F.bbox_random_crop(bbox, self.height, self.width, **params)
+        return F_crops.bbox_random_crop(bbox, self.height, self.width, **params)
 
     def apply_to_keypoint(self, keypoint, **params):
-        return F.keypoint_random_crop(keypoint, self.height, self.width, **params)
+        return F_crops.keypoint_random_crop(keypoint, self.height, self.width, **params)
 
     def get_params(self):
         return {"h_start": random.random(), "w_start": random.random(), "d_start": random.random()}
@@ -173,7 +174,7 @@ class CenterCropVolume(DualTransform):
         self.depth = depth
 
     def apply(self, img, is_mask=False, **params):
-        img = F.center_crop(img, self.height, self.width)
+        img = F_crops.center_crop(img, self.height, self.width)
         if not is_mask:
             z = max((img.shape[2] - self.depth) // 2, 0)
             img = img[:, :, z:min(z + self.depth, img.shape[2])]
@@ -183,13 +184,41 @@ class CenterCropVolume(DualTransform):
         return self.apply(img, is_mask=True, **{k: cv2.INTER_NEAREST if k == "interpolation" else v for k, v in params.items()})
 
     def apply_to_bbox(self, bbox, **params):
-        return F.bbox_center_crop(bbox, self.height, self.width, **params)
+        return F_crops.bbox_center_crop(bbox, self.height, self.width, **params)
 
     def apply_to_keypoint(self, keypoint, **params):
-        return F.keypoint_center_crop(keypoint, self.height, self.width, **params)
+        return F_crops.keypoint_center_crop(keypoint, self.height, self.width, **params)
 
     def get_transform_init_args_names(self):
         return ("height", "width", "depth")
+    
+
+class ResizeVolume(Resize):
+    def __init__(self, height, width, depth, interpolation=cv2.INTER_LINEAR, always_apply=False, p=1):
+        super().__init__(height, width, interpolation, always_apply, p)
+        self.depth = depth
+
+    def apply(self, img, interpolation=cv2.INTER_LINEAR, is_mask=False, **params):
+        # Interpolate 2D
+        img = super().apply(img, interpolation=cv2.INTER_NEAREST, **params)
+        if is_mask:
+            return img
+    
+        # Interpolate depth
+        # (H, W, D) -> (D, H, W)
+        img = np.transpose(img, (2, 0, 1))
+        
+        # Rotate as usual image
+        img = F_geometric.resize(img, height=self.depth, width=img.shape[1], interpolation=interpolation)
+
+        # (D, H, W) -> (H, W, D)
+        img = np.transpose(img, (1, 2, 0))
+
+        return img
+
+    def apply_to_mask(self, img: np.ndarray, **params) -> np.ndarray:
+        return self.apply(img, is_mask=True, **{k: cv2.INTER_NEAREST if k == "interpolation" else v for k, v in params.items()})
+
 
 
 class ToCHWD(ImageOnlyTransform):

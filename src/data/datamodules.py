@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from albumentations.pytorch import ToTensorV2
 
 from src.data.datasets import InMemorySurfaceVolumeDataset
-from src.data.transforms import RandomCropVolumeInside2dMask, CenterCropVolume, RotateX, ToCHWD, ToWritable
+from src.data.transforms import RandomCropVolumeInside2dMask, CenterCropVolume, ResizeVolume, RotateX, ToCHWD, ToWritable
 from src.utils.utils import surface_volume_collate_fn
 
 
@@ -106,6 +106,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         crop_size: int = 256,
         crop_size_z: int = 48,
         img_size: int = 256,
+        img_size_z: int = 64,
         use_imagenet_stats: bool = True,
         batch_size: int = 32,
         num_workers: int = 0,
@@ -148,7 +149,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     crop_mask_index=0,
                 ),
                 ToWritable(),
-                RotateX(p=0.5, limit=1),
+                RotateX(p=0.5, limit=1, value=0, mask_value=0),
                 A.Rotate(p=0.5, limit=30),
                 A.RandomScale(p=0.5, scale_limit=0.1),
                 CenterCropVolume(
@@ -157,9 +158,10 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     depth=self.hparams.crop_size_z,
                     always_apply=True,
                 ),
-                A.Resize(
+                ResizeVolume(
                     height=self.hparams.img_size,
                     width=self.hparams.img_size,
+                    depth=self.hparams.img_size_z,
                     always_apply=True,
                 ),
                 A.HorizontalFlip(p=0.5),
@@ -183,9 +185,10 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     depth=self.hparams.crop_size_z,
                     always_apply=True,
                 ),
-                A.Resize(
+                ResizeVolume(
                     height=self.hparams.img_size,
                     width=self.hparams.img_size,
+                    depth=self.hparams.img_size_z,
                     always_apply=True,
                 ),
                 A.Normalize(
