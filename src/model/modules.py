@@ -496,18 +496,24 @@ class SegmentationModule(BaseModule):
         
         for metric_name, metric in self.metrics['train_metrics'].items():
             if isinstance(metric, PredictionTargetPreviewGrid):  # Epoch-level
-                continue
-            y, y_pred = self.extract_targets_and_probas_for_metric(preds, batch)
-            metric.update(y_pred.flatten(), y.flatten())
-            self.log(
-                f't_{metric_name}',
-                metric.compute(),
-                on_step=True,
-                on_epoch=True,
-                prog_bar=True,
-                batch_size=batch['image'].shape[0],
-            )
-            metric.reset()
+                metric.update(
+                    batch['image'][..., batch['image'].shape[-1] // 2],
+                    y_pred, 
+                    y, 
+                    pathes=batch['path'],
+                )
+            else:
+                y, y_pred = self.extract_targets_and_probas_for_metric(preds, batch)
+                metric.update(y_pred.flatten(), y.flatten())
+                self.log(
+                    f't_{metric_name}',
+                    metric.compute(),
+                    on_step=True,
+                    on_epoch=True,
+                    prog_bar=True,
+                    batch_size=batch['image'].shape[0],
+                )
+                metric.reset()
 
         # Handle nan in loss
         has_nan = False
@@ -546,7 +552,7 @@ class SegmentationModule(BaseModule):
             y, y_pred = self.extract_targets_and_probas_for_metric(preds, batch)
             if isinstance(metric, PredictionTargetPreviewAgg) and batch['indices'] is not None:
                 metric.update(
-                    batch['image'][..., 0],
+                    batch['image'][..., batch['image'].shape[-1] // 2],
                     y_pred, 
                     y, 
                     pathes=batch['path'],
