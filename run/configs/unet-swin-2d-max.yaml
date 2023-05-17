@@ -60,7 +60,7 @@ trainer:
 model:
   class_path: src.model.modules.SegmentationModule
   init_args:
-    type_: pseudo_3d
+    type_: 2d_max
     backbone_name: swinv2_tiny_window8_256.ms_in1k
     pos_weight: 5.0
     label_smoothing: 0.0
@@ -89,8 +89,6 @@ model:
     finetuning:
       unfreeze_before_epoch: 5000
       unfreeze_layer_names_contains:
-        - patch_embed.proj
-        - layers_0.blocks.0.attn.cpb_mlp
         - decoder
         - segmentation_head
     lr_layer_decay: 0.99
@@ -103,18 +101,17 @@ data:
   class_path: src.data.datamodules.SurfaceVolumeDatamodule
   init_args:
     surface_volume_dirs: 
-      - /workspace/data/fragments/train/1
-      - /workspace/data/fragments/train/2
-      - /workspace/data/fragments/train/3
+      - /workspace/data/fragments_downscaled_2/train/1
+      - /workspace/data/fragments_downscaled_2/train/2
     surface_volume_dirs_test: null
-    val_dir_indices: 2
-    crop_size: 512
-    crop_size_z: 60
+    val_dir_indices: 1
+    crop_size: 256
+    crop_size_z: 64
     img_size: 256
     img_size_z: 64
     use_imagenet_stats: true
     use_rotate_x: false
-    batch_size: 2
+    batch_size: 8
     num_workers: 16
     pin_memory: false
     prefetch_factor: 2

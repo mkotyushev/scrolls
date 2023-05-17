@@ -18,6 +18,7 @@ from src.model.swin_transformer_v2_pseudo_3d import (
     map_pretrained_2d_to_pseudo_3d, 
     convert_to_grayscale
 )
+from src.model.unet_max import UnetMax
 from src.utils.utils import FeatureExtractorWrapper, PredictionTargetPreviewAgg, PredictionTargetPreviewGrid, get_feature_channels, state_norm
 
 
@@ -347,33 +348,51 @@ backbone_name_to_params = {
 }
 
 
-def build_segmentation(backbone_name):
+def build_segmentation(backbone_name, type_):
     encoder_2d = timm.create_model(
         backbone_name, 
         features_only=True,
         pretrained=True,
     )
-    with patch('timm.models.swin_transformer_v2.SwinTransformerV2', SwinTransformerV2Pseudo3d):
-        encoder_pseudo_3d = timm.create_model(
-            backbone_name, 
-            features_only=True,
-            pretrained=False,
-            window_size=backbone_name_to_params[backbone_name]['window_size'],
-            img_size=backbone_name_to_params[backbone_name]['img_size'],
+    if type_ == 'pseudo_3d':
+        with patch('timm.models.swin_transformer_v2.SwinTransformerV2', SwinTransformerV2Pseudo3d):
+            encoder_pseudo_3d = timm.create_model(
+                backbone_name, 
+                features_only=True,
+                pretrained=False,
+                window_size=backbone_name_to_params[backbone_name]['window_size'],
+                img_size=backbone_name_to_params[backbone_name]['img_size'],
+            )
+        encoder = map_pretrained_2d_to_pseudo_3d(encoder_2d, encoder_pseudo_3d)
+        encoder = convert_to_grayscale(encoder)
+        encoder = FeatureExtractorWrapper(encoder)
+        
+        model = Unet(
+            encoder=encoder,
+            encoder_channels=get_feature_channels(
+                encoder, 
+                input_shape=(1, *backbone_name_to_params[backbone_name]['img_size'])
+            ),
+            classes=1,
+            upsampling=backbone_name_to_params[backbone_name]['upsampling'],
         )
-    encoder = map_pretrained_2d_to_pseudo_3d(encoder_2d, encoder_pseudo_3d)
-    encoder = convert_to_grayscale(encoder)
-    encoder = FeatureExtractorWrapper(encoder)
-    
-    model = Unet(
-        encoder=encoder,
-        encoder_channels=get_feature_channels(
-            encoder, 
-            input_shape=(1, *backbone_name_to_params[backbone_name]['img_size'])
-        ),
-        classes=1,
-        upsampling=backbone_name_to_params[backbone_name]['upsampling'],
-    )
+    elif type_ == '2d_max':
+        encoder = encoder_2d
+        encoder = convert_to_grayscale(encoder)
+        encoder = FeatureExtractorWrapper(encoder)
+        unet = Unet(
+            encoder=encoder,
+            encoder_channels=get_feature_channels(
+                encoder, 
+                input_shape=(1, *backbone_name_to_params[backbone_name]['img_size'][:2])
+            ),
+            classes=1,
+            upsampling=backbone_name_to_params[backbone_name]['upsampling'],
+        )
+        model = UnetMax(unet)
+    else:
+        raise NotImplementedError(f'Unknown type {type_}.')
+
     # TODO: compile model, now blows up with
     # AssertionError: expected size 64==64, stride 4096==1 at dim=1
     # model = torch.compile(model)
@@ -381,9 +400,10 @@ def build_segmentation(backbone_name):
     return model
 
 
-class UnetSwinModule(BaseModule):
+class SegmentationModule(BaseModule):
     def __init__(
         self, 
+        type_: str = 'pseudo_3d',
         backbone_name: str = 'swinv2_tiny_window8_256.ms_in1k',
         label_smoothing: float = 0.0,
         pos_weight: float = 1.0,
@@ -409,7 +429,7 @@ class UnetSwinModule(BaseModule):
             prog_bar_names=prog_bar_names,
         )
         self.save_hyperparameters()
-        self.model = build_segmentation(backbone_name)
+        self.model = build_segmentation(backbone_name, type_)
         self.unfreeze_only_selected()
 
     def compute_loss_preds(self, batch, *args, **kwargs):
