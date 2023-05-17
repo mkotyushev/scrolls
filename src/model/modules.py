@@ -351,12 +351,14 @@ backbone_name_to_params = {
         # the last step degrades quality
         'upsampling': 4,
         'decoder_channels': (256, 128, 64),
+        'format': 'NHWC',
     },
     'convnext_small.in12k_ft_in1k_384': {
         'window_size': (8, 8, 16),
         'img_size': (384, 384, 64),
         'upsampling': 4,
         'decoder_channels': (256, 128, 64),
+        'format': 'NCHW',
     }
 }
 
@@ -393,7 +395,10 @@ def build_segmentation(backbone_name, type_, agg='max'):
     elif type_ == '2d_agg':
         encoder = encoder_2d
         encoder = convert_to_grayscale(encoder, backbone_name)
-        encoder = FeatureExtractorWrapper(encoder, format='NCHW')
+        encoder = FeatureExtractorWrapper(
+            encoder, 
+            format=backbone_name_to_params[backbone_name]['format']
+        )
         unet = Unet(
             encoder=encoder,
             encoder_channels=get_feature_channels(
