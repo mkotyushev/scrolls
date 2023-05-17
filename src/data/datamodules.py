@@ -170,6 +170,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 ),
                 A.HorizontalFlip(p=0.5),
                 A.VerticalFlip(p=0.5),
+                A.RandomBrightnessContrast(p=0.5, brightness_limit=0.1, contrast_limit=0.1),
                 A.Normalize(
                     max_pixel_value=MAX_PIXEL_VALUE,
                     mean=self.train_volume_mean,
