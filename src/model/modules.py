@@ -16,10 +16,16 @@ from src.model.smp import Unet
 from src.model.swin_transformer_v2_pseudo_3d import (
     SwinTransformerV2Pseudo3d, 
     map_pretrained_2d_to_pseudo_3d, 
-    convert_to_grayscale
 )
 from src.model.unet_max import UnetMax
-from src.utils.utils import FeatureExtractorWrapper, PredictionTargetPreviewAgg, PredictionTargetPreviewGrid, get_feature_channels, state_norm
+from src.utils.utils import (
+    FeatureExtractorWrapper, 
+    PredictionTargetPreviewAgg, 
+    PredictionTargetPreviewGrid, 
+    get_feature_channels, 
+    state_norm,
+    convert_to_grayscale
+)
 
 
 logger = logging.getLogger(__name__)
