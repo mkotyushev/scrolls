@@ -3,7 +3,7 @@ import cv2
 import numpy as np
 import torch
 from typing import Dict
-from albumentations import Rotate, DualTransform, ImageOnlyTransform, Resize
+from albumentations import Rotate, DualTransform, ImageOnlyTransform, Resize, RandomScale
 from albumentations.augmentations.crops import functional as F_crops
 from albumentations.augmentations.geometric import functional as F_geometric
 
@@ -84,9 +84,9 @@ class RandomCropVolumeInside2dMask:
 
         # Get crop indices
         w_start = center_index[1] - self.width // 2
-        w_end = center_index[1] + self.width // 2
+        w_end = w_start + self.width
         h_start = center_index[0] - self.height // 2
-        h_end = center_index[0] + self.height // 2
+        h_end = h_start + self.height
 
         z_start_max = max(kwargs['image'].shape[2] - self.depth, 0)
         z_start = np.random.randint(0, z_start_max) if z_start_max > 0 else 0
@@ -233,3 +233,10 @@ class ToWritable(DualTransform):
         img = img.copy()
         img.setflags(write=True)
         return img
+
+class RandomScaleResize(RandomScale):
+    """Same as RandomScale but resize to original size after scaling."""
+    def apply(self, img, scale=0, interpolation=cv2.INTER_LINEAR, **params):
+        original_h, original_w = img.shape[:2]
+        img = super().apply(img, scale, interpolation, **params)
+        return F_geometric.resize(img, height=original_h, width=original_w, interpolation=interpolation)

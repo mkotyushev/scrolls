@@ -1,3 +1,4 @@
+import logging
 import cv2
 import albumentations as A
 import numpy as np
@@ -9,8 +10,11 @@ from torch.utils.data import DataLoader
 from albumentations.pytorch import ToTensorV2
 
 from src.data.datasets import InMemorySurfaceVolumeDataset
-from src.data.transforms import RandomCropVolumeInside2dMask, CenterCropVolume, ResizeVolume, RotateX, ToCHWD, ToWritable
+from src.data.transforms import RandomCropVolumeInside2dMask, CenterCropVolume, RandomScaleResize, ResizeVolume, RotateX, ToCHWD, ToWritable
 from src.utils.utils import surface_volume_collate_fn
+
+
+logger = logging.getLogger(__name__)
 
 
 N_SLICES = 65
@@ -74,6 +78,8 @@ def read_data(surface_volume_dirs):
     if len(ink_masks) == 0:
         ink_masks = None
 
+    logger.info(f'Loaded {len(volumes)} volumes from {surface_volume_dirs} dirs')
+
     return volumes, scroll_masks, ir_images, ink_masks
 
 
@@ -89,7 +95,6 @@ def calc_mean_std(volumes, scroll_masks):
 
     sum_sq = 0
     for sum_, sum_sq_, n in zip(sums, sums_sq, ns):
-        scroll_mask = scroll_mask > 0
         sum_sq += (sum_sq_ - 2 * sum_ * mean + mean ** 2 * n)
     std = np.sqrt(sum_sq / sum(ns))
 
@@ -146,7 +151,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         self.train_transform = A.Compose(
             [
                 RandomCropVolumeInside2dMask(
-                    height=int(1.1 *self.hparams.crop_size), 
+                    height=int(1.1 * self.hparams.crop_size), 
                     width=int(1.1 * self.hparams.crop_size), 
                     depth=int(1.1 * self.hparams.crop_size_z),
                     always_apply=True,
@@ -154,8 +159,8 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 ),
                 ToWritable(),
                 *rotate_x_transform,
-                A.Rotate(p=0.5, limit=30),
-                A.RandomScale(p=0.5, scale_limit=0.1),
+                A.Rotate(p=0.5, limit=30, value=0, mask_value=0),
+                RandomScaleResize(p=0.5, scale_limit=0.1),
                 CenterCropVolume(
                     height=self.hparams.crop_size, 
                     width=self.hparams.crop_size,
