@@ -159,16 +159,20 @@ def state_norm(module: torch.nn.Module, norm_type: Union[float, int, str], group
 
 
 class FeatureExtractorWrapper(nn.Module):
-    def __init__(self, model):
+    def __init__(self, model, format: Format | str = 'NHWC'):
         super().__init__()
         self.model = model
         self.output_stride = 32
+        self.format = format if isinstance(format, Format) else Format(format)
 
     def __iter__(self):
         return iter(self.model)
     
     def forward(self, x):
-        return [nhwc_to(y, Format('NCHW')) for y in self.model(x)]
+        if self.format == Format('NHWC'):
+            return [nhwc_to(y, Format('NCHW')) for y in self.model(x)]
+        else:
+            return self.model(x)
 
 
 def get_num_layers(model: FeatureListNet):

@@ -644,7 +644,14 @@ def map_pretrained_2d_to_pseudo_3d(model_2d, model_pseudo_3d):
     return model_pseudo_3d
 
 
-def convert_to_grayscale(model):
-    model.patch_embed.proj.in_channels = 1
-    model.patch_embed.proj.weight = nn.Parameter(model.patch_embed.proj.weight.mean(dim=1, keepdim=True))
+def convert_to_grayscale(model, backbone_name):
+    if backbone_name == 'swinv2_tiny_window8_256.ms_in1k':
+        model.patch_embed.proj.in_channels = 1
+        model.patch_embed.proj.weight = nn.Parameter(model.patch_embed.proj.weight.mean(dim=1, keepdim=True))
+    elif backbone_name == 'convnext_small.in12k_ft_in1k_384':
+        model.stem_0.in_channels = 1
+        model.stem_0.weight = nn.Parameter(model.stem_0.weight.mean(dim=1, keepdim=True))
+    else:
+        raise ValueError(f'backbone {backbone_name} not supported')
+
     return model

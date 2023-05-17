@@ -344,6 +344,13 @@ backbone_name_to_params = {
         # TODO: SWIN v2 has patch size 4, upsampling at 
         # the last step degrades quality
         'upsampling': 4,
+        'decoder_channels': (256, 128, 64),
+    },
+    'convnext_small.in12k_ft_in1k_384': {
+        'window_size': (8, 8, 16),
+        'img_size': (384, 384, 64),
+        'upsampling': 4,
+        'decoder_channels': (256, 128, 64),
     }
 }
 
@@ -364,7 +371,7 @@ def build_segmentation(backbone_name, type_):
                 img_size=backbone_name_to_params[backbone_name]['img_size'],
             )
         encoder = map_pretrained_2d_to_pseudo_3d(encoder_2d, encoder_pseudo_3d)
-        encoder = convert_to_grayscale(encoder)
+        encoder = convert_to_grayscale(encoder, backbone_name)
         encoder = FeatureExtractorWrapper(encoder)
         
         model = Unet(
@@ -373,19 +380,21 @@ def build_segmentation(backbone_name, type_):
                 encoder, 
                 input_shape=(1, *backbone_name_to_params[backbone_name]['img_size'])
             ),
+            decoder_channels=backbone_name_to_params[backbone_name]['decoder_channels'],
             classes=1,
             upsampling=backbone_name_to_params[backbone_name]['upsampling'],
         )
     elif type_ == '2d_max':
         encoder = encoder_2d
-        encoder = convert_to_grayscale(encoder)
-        encoder = FeatureExtractorWrapper(encoder)
+        encoder = convert_to_grayscale(encoder, backbone_name)
+        encoder = FeatureExtractorWrapper(encoder, format='NCHW')
         unet = Unet(
             encoder=encoder,
             encoder_channels=get_feature_channels(
                 encoder, 
                 input_shape=(1, *backbone_name_to_params[backbone_name]['img_size'][:2])
             ),
+            decoder_channels=backbone_name_to_params[backbone_name]['decoder_channels'],
             classes=1,
             upsampling=backbone_name_to_params[backbone_name]['upsampling'],
         )
