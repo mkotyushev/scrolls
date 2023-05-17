@@ -102,16 +102,19 @@ data:
   class_path: src.data.datamodules.SurfaceVolumeDatamodule
   init_args:
     surface_volume_dirs: 
-      - /workspace/data/fragments_downscaled_2/train/1
-      - /workspace/data/fragments_downscaled_2/train/2
-      - /workspace/data/fragments_downscaled_2/train/3
+      - /workspace/data/fragments/train/1
+      - /workspace/data/fragments/train/2
+      - /workspace/data/fragments/train/3
     surface_volume_dirs_test: null
     val_dir_indices: 2
     crop_size: 512
-    crop_size_z: 64
+    crop_size_z: 60
     img_size: 256
+    img_size_z: 64
+    use_imagenet_stats: true
+    use_rotate_x: false
     batch_size: 2
-    num_workers: 10
+    num_workers: 16
     pin_memory: false
     prefetch_factor: 2
     persistent_workers: true
