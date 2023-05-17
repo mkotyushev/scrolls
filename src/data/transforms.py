@@ -23,12 +23,17 @@ class RotateX(Rotate):
     
     def apply_to_mask(self, img, angle=0, **params):
         # Resize by H axis on cos angle
-        img = cv2.resize(
+        img_new = np.full_like(img, self.mask_value)
+        h_offset = int(img.shape[0] * (1 - np.cos(np.deg2rad(angle))) / 2)
+        img_shrinked = cv2.resize(
             img, 
-            (int(img.shape[1] * np.cos(np.deg2rad(angle))), img.shape[0]), 
-            interpolation=cv2.INTER_NEAREST
+            (0, 0),
+            fx=1, 
+            fy=np.cos(np.deg2rad(angle)),
+            interpolation=cv2.INTER_LINEAR,
         )
-        return img
+        img_new[h_offset:h_offset + img_shrinked.shape[0], :] = img_shrinked
+        return img_new
 
 
 class RandomCropVolumeInside2dMask:
@@ -162,7 +167,7 @@ class CenterCropVolume(DualTransform):
     """
 
     def __init__(self, height, width, depth, always_apply=False, p=1.0):
-        super(CenterCropVolume, self).__init__(always_apply, p)
+        super().__init__(always_apply, p)
         self.height = height
         self.width = width
         self.depth = depth
