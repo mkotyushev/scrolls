@@ -115,6 +115,8 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         use_imagenet_stats: bool = True,
         use_rotate_x: bool = False,
         batch_size: int = 32,
+        batch_size_full: int = 32,
+        batch_size_full_apply_epoch: Optional[int] = None,
         num_workers: int = 0,
         pin_memory: bool = False,
         prefetch_factor: int = 2,
@@ -312,9 +314,13 @@ class SurfaceVolumeDatamodule(LightningDataModule):
             self.test_dataset.transform = self.test_transform
 
     def train_dataloader(self) -> DataLoader:
+        batch_size = self.hparams.batch_size
+        if self.hparams.batch_size_full_apply_epoch is not None and self.trainer is not None:
+            if self.trainer.current_epoch >= self.hparams.batch_size_full_apply_epoch:
+                batch_size = self.hparams.batch_size_full
         return DataLoader(
             dataset=self.train_dataset, 
-            batch_size=self.hparams.batch_size, 
+            batch_size=batch_size, 
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory, 
             prefetch_factor=self.hparams.prefetch_factor,
@@ -325,9 +331,13 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         )
 
     def val_dataloader(self) -> DataLoader:
+        batch_size = self.hparams.batch_size
+        if self.hparams.batch_size_full_apply_epoch is not None and self.trainer is not None:
+            if self.trainer.current_epoch >= self.hparams.batch_size_full_apply_epoch:
+                batch_size = self.hparams.batch_size_full
         val_dataloader = DataLoader(
             dataset=self.val_dataset, 
-            batch_size=self.hparams.batch_size, 
+            batch_size=batch_size, 
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
             prefetch_factor=self.hparams.prefetch_factor,
@@ -340,9 +350,13 @@ class SurfaceVolumeDatamodule(LightningDataModule):
 
     def test_dataloader(self) -> DataLoader:
         assert self.test_dataset is not None, "test dataset is not defined"
+        batch_size = self.hparams.batch_size
+        if self.hparams.batch_size_full_apply_epoch is not None and self.trainer is not None:
+            if self.trainer.current_epoch >= self.hparams.batch_size_full_apply_epoch:
+                batch_size = self.hparams.batch_size_full
         return DataLoader(
             dataset=self.test_dataset, 
-            batch_size=self.hparams.batch_size, 
+            batch_size=batch_size, 
             num_workers=self.hparams.num_workers,
             pin_memory=self.hparams.pin_memory,
             prefetch_factor=self.hparams.prefetch_factor,
