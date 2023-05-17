@@ -105,6 +105,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         val_dir_indices: Optional[List[int] | int] = None,
         crop_size: int = 256,
         crop_size_z: int = 48,
+        img_size: int = 256,
         use_imagenet_stats: bool = True,
         batch_size: int = 32,
         num_workers: int = 0,
@@ -156,6 +157,11 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     depth=self.hparams.crop_size_z,
                     always_apply=True,
                 ),
+                A.Resize(
+                    height=self.hparams.img_size,
+                    width=self.hparams.img_size,
+                    always_apply=True,
+                ),
                 A.HorizontalFlip(p=0.5),
                 A.VerticalFlip(p=0.5),
                 A.Normalize(
@@ -175,6 +181,11 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     height=self.hparams.crop_size, 
                     width=self.hparams.crop_size,
                     depth=self.hparams.crop_size_z,
+                    always_apply=True,
+                ),
+                A.Resize(
+                    height=self.hparams.img_size,
+                    width=self.hparams.img_size,
                     always_apply=True,
                 ),
                 A.Normalize(

@@ -61,6 +61,7 @@ model:
   class_path: src.model.modules.UnetSwinModule
   init_args:
     backbone_name: swinv2_tiny_window8_256.ms_in1k
+    pos_weight: 1.0
     label_smoothing: 0.0
     optimizer_init: 
       class_path: torch.optim.AdamW
@@ -97,7 +98,6 @@ model:
     skip_nan: false
     prog_bar_names: 
       - f05
-    pos_weight: 1.0
 data:
   class_path: src.data.datamodules.SurfaceVolumeDatamodule
   init_args:
@@ -107,8 +107,9 @@ data:
       - /workspace/data/fragments_downscaled_2/train/3
     surface_volume_dirs_test: null
     val_dir_indices: 2
-    crop_size: 256
+    crop_size: 512
     crop_size_z: 64
+    img_size: 256
     batch_size: 2
     num_workers: 10
     pin_memory: false
