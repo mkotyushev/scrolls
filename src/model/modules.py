@@ -17,7 +17,7 @@ from src.model.swin_transformer_v2_pseudo_3d import (
     SwinTransformerV2Pseudo3d, 
     map_pretrained_2d_to_pseudo_3d, 
 )
-from src.model.unet_max import UnetMax
+from src.model.unet_agg import UnetAgg
 from src.utils.utils import (
     FeatureExtractorWrapper, 
     PredictionTargetPreviewAgg, 
@@ -361,7 +361,7 @@ backbone_name_to_params = {
 }
 
 
-def build_segmentation(backbone_name, type_):
+def build_segmentation(backbone_name, type_, agg='max'):
     encoder_2d = timm.create_model(
         backbone_name, 
         features_only=True,
@@ -390,7 +390,7 @@ def build_segmentation(backbone_name, type_):
             classes=1,
             upsampling=backbone_name_to_params[backbone_name]['upsampling'],
         )
-    elif type_ == '2d_max':
+    elif type_ == '2d_agg':
         encoder = encoder_2d
         encoder = convert_to_grayscale(encoder, backbone_name)
         encoder = FeatureExtractorWrapper(encoder, format='NCHW')
@@ -404,7 +404,7 @@ def build_segmentation(backbone_name, type_):
             classes=1,
             upsampling=backbone_name_to_params[backbone_name]['upsampling'],
         )
-        model = UnetMax(unet)
+        model = UnetAgg(unet, agg=agg)
     else:
         raise NotImplementedError(f'Unknown type {type_}.')
 
@@ -420,6 +420,7 @@ class SegmentationModule(BaseModule):
         self, 
         type_: str = 'pseudo_3d',
         backbone_name: str = 'swinv2_tiny_window8_256.ms_in1k',
+        agg: str = 'max',
         label_smoothing: float = 0.0,
         pos_weight: float = 1.0,
         optimizer_init: Optional[Dict[str, Any]] = None,
@@ -444,7 +445,7 @@ class SegmentationModule(BaseModule):
             prog_bar_names=prog_bar_names,
         )
         self.save_hyperparameters()
-        self.model = build_segmentation(backbone_name, type_)
+        self.model = build_segmentation(backbone_name, type_, agg=agg)
         self.unfreeze_only_selected()
 
     def compute_loss_preds(self, batch, *args, **kwargs):
