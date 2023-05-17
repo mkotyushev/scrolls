@@ -469,13 +469,13 @@ class SegmentationModule(BaseModule):
                 'train_metrics': ModuleDict(
                     {
                         'f05': BinaryFBetaScore(beta=0.5),
-                        'preview': PredictionTargetPreviewGrid(preview_downscale=8, n_images=9),
+                        'preview': PredictionTargetPreviewGrid(preview_downscale=16, n_images=9),
                     }
                 ),
                 'val_metrics': ModuleDict(
                     {
                         'f05': BinaryFBetaScore(beta=0.5),
-                        'preview': PredictionTargetPreviewAgg(preview_downscale=8),
+                        'preview': PredictionTargetPreviewAgg(preview_downscale=16),
                     }
                 ),
             }
