@@ -386,6 +386,7 @@ class UnetSwinModule(BaseModule):
         self, 
         backbone_name: str = 'swinv2_tiny_window8_256.ms_in1k',
         label_smoothing: float = 0.0,
+        pos_weight: float = 1.0,
         optimizer_init: Optional[Dict[str, Any]] = None,
         lr_scheduler_init: Optional[Dict[str, Any]] = None,
         pl_lrs_cfg: Optional[Dict[str, Any]] = None,
@@ -419,6 +420,7 @@ class UnetSwinModule(BaseModule):
                 preds.squeeze(1).float().flatten(),
                 batch['mask_2'].float().flatten(),
                 reduction='mean',
+                pos_weight=torch.tensor(self.hparams.pos_weight, device=preds.device),
             ),
         }
         total_loss = sum(losses.values())
