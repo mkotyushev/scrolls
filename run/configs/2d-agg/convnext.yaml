@@ -3,5 +3,9 @@ model:
     backbone_name: convnext_small.in12k_ft_in1k_384
 data:
   init_args:
+    crop_size: 384
+    crop_size_z: 64
+    img_size: 384
+    img_size_z: 64
     batch_size: 8
     batch_size_full: 1
