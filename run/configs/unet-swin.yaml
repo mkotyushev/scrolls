@@ -61,7 +61,7 @@ model:
   class_path: src.model.modules.UnetSwinModule
   init_args:
     backbone_name: swinv2_tiny_window8_256.ms_in1k
-    pos_weight: 1.0
+    pos_weight: 5.0
     label_smoothing: 0.0
     optimizer_init: 
       class_path: torch.optim.AdamW
