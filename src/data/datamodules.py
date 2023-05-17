@@ -108,6 +108,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         img_size: int = 256,
         img_size_z: int = 64,
         use_imagenet_stats: bool = True,
+        use_rotate_x: bool = False,
         batch_size: int = 32,
         num_workers: int = 0,
         pin_memory: bool = False,
@@ -139,6 +140,9 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         self.collate_fn = surface_volume_collate_fn
 
     def build_transforms(self) -> None:
+        rotate_x_transform = []
+        if self.hparams.use_rotate_x:
+            rotate_x_transform.append(RotateX(p=0.5, limit=1, value=0, mask_value=0))
         self.train_transform = A.Compose(
             [
                 RandomCropVolumeInside2dMask(
@@ -149,7 +153,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     crop_mask_index=0,
                 ),
                 ToWritable(),
-                RotateX(p=0.5, limit=1, value=0, mask_value=0),
+                *rotate_x_transform,
                 A.Rotate(p=0.5, limit=30),
                 A.RandomScale(p=0.5, scale_limit=0.1),
                 CenterCropVolume(
