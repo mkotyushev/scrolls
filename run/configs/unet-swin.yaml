@@ -86,10 +86,12 @@ model:
       frequency: 1
     finetuning:
       unfreeze_before_epoch: 5000
-      unfreeze_layer_names_startswith:
-        - pooling
-        - classifier
-    lr_layer_decay: 1.0
+      unfreeze_layer_names_contains:
+        - patch_embed.proj
+        - layers_0.blocks.0.attn.cpb_mlp
+        - decoder
+        - segmentation_head
+    lr_layer_decay: 0.99
     log_norm_verbose: true
     n_bootstrap: 0
     skip_nan: false
