@@ -150,7 +150,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 ToWritable(),
                 RotateX(p=0.5, limit=10),
                 A.Rotate(p=0.5, limit=30),
-                A.RandomScale(p=0.5, scale_limit=0.2),
+                A.RandomScale(p=0.5, scale_limit=0.1),
                 A.Resize(
                     height=self.hparams.img_size,
                     width=self.hparams.img_size,
