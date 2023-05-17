@@ -5,6 +5,8 @@
 #
 # Use pathlib.Path to work with paths not os.path.
 # Use argparse to work with command line arguments.
+#
+# Usage: python src/scripts/downscale_dataset.py /workspace/data/fragments/ /workspace/data/fragments_downscaled_2/ 2
 
 import argparse
 import cv2
