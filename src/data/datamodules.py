@@ -141,9 +141,9 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         self.train_transform = A.Compose(
             [
                 RandomCropVolumeInside2dMask(
-                    height=2 * self.hparams.crop_size, 
-                    width=2 * self.hparams.crop_size, 
-                    depth=2 * self.hparams.crop_size_z,
+                    height=self.hparams.crop_size, 
+                    width=self.hparams.crop_size, 
+                    depth=self.hparams.crop_size_z,
                     always_apply=True,
                     crop_mask_index=0,
                 ),
@@ -151,12 +151,6 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 RotateX(p=0.5, limit=10),
                 A.Rotate(p=0.5, limit=30),
                 A.RandomScale(p=0.5, scale_limit=0.2),
-                CenterCropVolume(
-                    height=self.hparams.crop_size, 
-                    width=self.hparams.crop_size,
-                    depth=self.hparams.crop_size_z,
-                    always_apply=True,
-                ),
                 A.Resize(
                     height=self.hparams.img_size,
                     width=self.hparams.img_size,
