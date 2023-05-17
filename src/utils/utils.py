@@ -257,7 +257,7 @@ class PredictionTargetPreviewAgg(nn.Module):
             patch_index_w, patch_index_h = indices[i].tolist()
 
             self.previews[f'input_{path}'][patch_index_h, patch_index_w] = \
-                input[i] * 255
+                input[i]
             self.previews[f'proba_{path}'][patch_index_h, patch_index_w] = \
                 (probas[i] * 255).byte()
             self.previews[f'target_{path}'][patch_index_h, patch_index_w] = \
@@ -298,43 +298,44 @@ class PredictionTargetPreviewGrid(nn.Module):
         target: torch.Tensor, 
         pathes: list[str],
     ):
-        # Get preview images
-        input = F.interpolate(
-            input.float(),
-            scale_factor=1 / self.preview_downscale, 
-            mode='bilinear',
-            align_corners=False, 
-        )
-        probas = F.interpolate(
-            probas.float().unsqueeze(1),  # interpolate as (N, C, H, W)
-            scale_factor=1 / self.preview_downscale, 
-            mode='bilinear', 
-            align_corners=False, 
-        ).squeeze(1)
-        target = F.interpolate(
-            target.float().unsqueeze(1),  # interpolate as (N, C, H, W)
-            scale_factor=1 / self.preview_downscale,
-            mode='bilinear',
-            align_corners=False, 
-        ).squeeze(1)
-
-        # To CPU * types
-        input, probas, target = \
-            input.cpu(), \
-            probas.cpu(), \
-            target.cpu()
-
         # Add images until grid is full
         for i in range(probas.shape[0]):
             path = '/'.join(pathes[i].split('/')[-2:])
             if len(self.previews[f'input_{path}']) < self.n_images:
-                self.previews[f'input_{path}'].append(input[i] * 255)
-                self.previews[f'proba_{path}'].append((probas[i] * 255).byte())
-                self.previews[f'target_{path}'].append((target[i] * 255).byte())
+                # Get preview images
+                inp = F.interpolate(
+                    input[i].float().unsqueeze(0),
+                    scale_factor=1 / self.preview_downscale, 
+                    mode='bilinear',
+                    align_corners=False, 
+                ).cpu()
+                proba = F.interpolate(
+                    probas[i].float().unsqueeze(0).unsqueeze(1),  # interpolate as (N, C, H, W)
+                    scale_factor=1 / self.preview_downscale, 
+                    mode='bilinear', 
+                    align_corners=False, 
+                ).cpu()
+                targ = F.interpolate(
+                    target[i].float().unsqueeze(0).unsqueeze(1),  # interpolate as (N, C, H, W)
+                    scale_factor=1 / self.preview_downscale,
+                    mode='bilinear',
+                    align_corners=False, 
+                ).cpu()
+
+                self.previews[f'input_{path}'].append(inp)
+                self.previews[f'proba_{path}'].append((proba * 255).byte())
+                self.previews[f'target_{path}'].append((targ * 255).byte())
     
     def compute(self):
-        captions = [k for k in self.previews.keys()]
-        preview_grids = [make_grid(v, nrow=int(self.n_images ** 0.5)) for v in self.previews.values()]
+        captions = list(self.previews.keys())
+        preview_grids = [
+            make_grid(
+                torch.cat(v, dim=0), 
+                nrow=int(self.n_images ** 0.5)
+            ).float()
+            for v in self.previews.values()
+        ]
+
         return captions, preview_grids
     
 
