@@ -409,6 +409,7 @@ class UnetSwinModule(BaseModule):
         )
         self.save_hyperparameters()
         self.model = build_segmentation(backbone_name)
+        self.unfreeze_only_selected()
 
     def compute_loss_preds(self, batch, *args, **kwargs):
         """Compute losses and predictions."""
