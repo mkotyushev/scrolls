@@ -13,6 +13,7 @@ from weakref import proxy
 from timm.layers.format import nhwc_to, Format
 from timm.models import FeatureListNet
 from patchify import unpatchify
+from torchvision.utils import make_grid
 
 
 class MyLightningCLI(LightningCLI):
@@ -245,14 +246,14 @@ class PredictionTargetPreviewAgg(nn.Module):
                     *shape_patches[i].tolist(),
                     *patch_size,
                 ]
-                self.previews[f'input_{path}'] = torch.zeros(shape, dtype=torch.uint8)
+                self.previews[f'input_{path}'] = torch.zeros(shape, dtype=torch.float32)
                 self.previews[f'proba_{path}'] = torch.zeros(shape, dtype=torch.uint8)
                 self.previews[f'target_{path}'] = torch.zeros(shape, dtype=torch.uint8)
 
             patch_index_w, patch_index_h = indices[i].tolist()
 
             self.previews[f'input_{path}'][patch_index_h, patch_index_w] = \
-                (input[i] * 255).byte()
+                input[i] * 255
             self.previews[f'proba_{path}'][patch_index_h, patch_index_w] = \
                 (probas[i] * 255).byte()
             self.previews[f'target_{path}'][patch_index_h, patch_index_w] = \
@@ -273,4 +274,62 @@ class PredictionTargetPreviewAgg(nn.Module):
             captions.append(name)
 
         return captions, previews_unpatchified
+    
+
+class PredictionTargetPreviewGrid(nn.Module):
+    """Aggregate prediction and target patches to images with downscaling."""
+    def __init__(self, preview_downscale: int = 4, n_images: int = 4):
+        super().__init__()
+        self.preview_downscale = preview_downscale
+        self.n_images = n_images
+        self.previews = defaultdict(list)
+
+    def reset(self):
+        self.previews = defaultdict(list)
+
+    def update(
+        self, 
+        input: torch.Tensor,
+        probas: torch.Tensor, 
+        target: torch.Tensor, 
+        pathes: list[str],
+    ):
+        # Get preview images
+        input = F.interpolate(
+            input.float(),
+            scale_factor=1 / self.preview_downscale, 
+            mode='bilinear',
+            align_corners=False, 
+        )
+        probas = F.interpolate(
+            probas.float().unsqueeze(1),  # interpolate as (N, C, H, W)
+            scale_factor=1 / self.preview_downscale, 
+            mode='bilinear', 
+            align_corners=False, 
+        ).squeeze(1)
+        target = F.interpolate(
+            target.float().unsqueeze(1),  # interpolate as (N, C, H, W)
+            scale_factor=1 / self.preview_downscale,
+            mode='bilinear',
+            align_corners=False, 
+        ).squeeze(1)
+
+        # To CPU * types
+        input, probas, target = \
+            input.cpu(), \
+            probas.cpu(), \
+            target.cpu()
+
+        # Add images until grid is full
+        for i in range(probas.shape[0]):
+            path = '/'.join(pathes[i].split('/')[-2:])
+            if len(self.previews[f'input_{path}']) < self.n_images:
+                self.previews[f'input_{path}'].append(input[i] * 255)
+                self.previews[f'proba_{path}'].append((probas[i] * 255).byte())
+                self.previews[f'target_{path}'].append((target[i] * 255).byte())
+    
+    def compute(self):
+        captions = [k for k in self.previews.keys()]
+        preview_grids = [make_grid(v, nrow=int(self.n_images ** 0.5)) for v in self.previews.values()]
+        return captions, preview_grids
     

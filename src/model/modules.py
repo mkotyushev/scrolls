@@ -18,7 +18,7 @@ from src.model.swin_transformer_v2_pseudo_3d import (
     map_pretrained_2d_to_pseudo_3d, 
     convert_to_grayscale
 )
-from src.utils.utils import FeatureExtractorWrapper, PredictionTargetPreviewAgg, get_feature_channels, state_norm
+from src.utils.utils import FeatureExtractorWrapper, PredictionTargetPreviewAgg, PredictionTargetPreviewGrid, get_feature_channels, state_norm
 
 
 logger = logging.getLogger(__name__)
@@ -433,6 +433,7 @@ class UnetSwinModule(BaseModule):
                 'train_metrics': ModuleDict(
                     {
                         'f05': BinaryFBetaScore(beta=0.5),
+                        'preview': PredictionTargetPreviewGrid(preview_downscale=8, n_images=9),
                     }
                 ),
                 'val_metrics': ModuleDict(
@@ -458,6 +459,8 @@ class UnetSwinModule(BaseModule):
             )
         
         for metric_name, metric in self.metrics['train_metrics'].items():
+            if isinstance(metric, PredictionTargetPreviewGrid):  # Epoch-level
+                continue
             y, y_pred = self.extract_targets_and_probas_for_metric(preds, batch)
             metric.update(y_pred.flatten(), y.flatten())
             self.log(
@@ -521,6 +524,22 @@ class UnetSwinModule(BaseModule):
     def predict_step(self, batch: Tensor, batch_idx: int, dataloader_idx: Optional[int] = None, **kwargs) -> Tensor:
         _, _, preds = self.compute_loss_preds(batch, **kwargs)
         return preds
+
+    def on_train_epoch_end(self) -> None:
+        """Called in the training loop at the very end of the epoch."""
+        if self.metrics is None:
+            return
+
+        for metric_name, metric in self.metrics['train_metrics'].items():
+            if isinstance(metric, PredictionTargetPreviewGrid):
+                captions, previews = metric.compute()
+                self.trainer.logger.log_image(
+                    key=f't_{metric_name}',	
+                    images=previews,
+                    caption=captions,
+                    step=self.current_epoch,
+                )
+            metric.reset()
 
     def on_validation_epoch_end(self) -> None:
         """Called in the validation loop at the very end of the epoch."""
