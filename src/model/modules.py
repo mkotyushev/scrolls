@@ -306,6 +306,14 @@ class BaseModule(LightningModule):
                 int(milestone * total_steps / grad_accum_steps) 
                 for milestone in self.hparams.lr_scheduler_init['init_args']['milestones']
             ]
+        elif (
+            'PiecewiceFactorsLRScheduler' in self.hparams.lr_scheduler_init['class_path'] and
+            self.hparams.pl_lrs_cfg['interval'] == 'epoch'
+        ):
+            self.hparams.lr_scheduler_init['init_args']['milestones'] = [
+                int(milestone * self.trainer.max_epochs) 
+                for milestone in self.hparams.lr_scheduler_init['init_args']['milestones']
+            ]
         
         scheduler = instantiate_class(args=optimizer, init=self.hparams.lr_scheduler_init)
         scheduler = {
