@@ -159,7 +159,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 A.HorizontalFlip(p=0.5),
                 A.VerticalFlip(p=0.5),
                 A.Normalize(
-                    max_pixel_value=65536,
+                    max_pixel_value=MAX_PIXEL_VALUE,
                     mean=self.train_volume_mean,
                     std=self.train_volume_std,
                     always_apply=True,
@@ -178,7 +178,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     always_apply=True,
                 ),
                 A.Normalize(
-                    max_pixel_value=65536,
+                    max_pixel_value=MAX_PIXEL_VALUE,
                     mean=self.train_volume_mean,
                     std=self.train_volume_std,
                     always_apply=True,
