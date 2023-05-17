@@ -93,7 +93,7 @@ model:
               start_lr: 1e-1
               stop_lr: 1e-2
     pl_lrs_cfg:
-      interval: step
+      interval: epoch
       frequency: 1
     finetuning:
       unfreeze_before_epoch: 10
