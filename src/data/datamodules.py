@@ -13,7 +13,8 @@ from src.data.datasets import InMemorySurfaceVolumeDataset
 from src.data.transforms import (
     RandomCropVolumeInside2dMask, 
     CenterCropVolume, 
-    RandomScaleResize, 
+    RandomScaleResize,
+    ResizeVolume, 
     RotateX, 
     ToCHWD, 
     ToWritable
@@ -165,27 +166,30 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     always_apply=True,
                     crop_mask_index=0,
                 ),
-                A.Resize(
+                ResizeVolume(
                     height=self.hparams.img_size, 
-                    width=self.hparams.img_size, 
+                    width=self.hparams.img_size,
+                    depth=self.hparams.img_size_z,
                     always_apply=True,
                 )
             ]
             # Resize anyway: crop is done in dataset
             # for that case
             val_resize_transform = [
-                A.Resize(
+                ResizeVolume(
                     height=self.hparams.img_size, 
                     width=self.hparams.img_size, 
+                    depth=self.hparams.img_size_z,
                     always_apply=True,
                 )
             ]
         elif self.hparams.resize_xy == 'resize':
             # Simply resize to img_size
             train_resize_transform = val_resize_transform = [
-                A.Resize(
+                ResizeVolume(
                     height=self.hparams.img_size, 
                     width=self.hparams.img_size, 
+                    depth=self.hparams.img_size_z,
                     always_apply=True,
                 )
             ]
