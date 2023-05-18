@@ -121,7 +121,6 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         img_size_z: int = 64,
         resize_xy: str = 'crop',
         use_imagenet_stats: bool = True,
-        use_rotate_x: bool = False,
         batch_size: int = 32,
         batch_size_full: int = 32,
         batch_size_full_apply_epoch: Optional[int] = None,

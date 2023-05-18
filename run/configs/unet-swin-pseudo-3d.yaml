@@ -113,7 +113,6 @@ data:
     img_size: 256
     img_size_z: 64
     use_imagenet_stats: true
-    use_rotate_x: false
     batch_size: 2
     batch_size_full: 2
     batch_size_full_apply_epoch: 5000

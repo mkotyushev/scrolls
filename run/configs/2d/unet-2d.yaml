@@ -109,7 +109,6 @@ data:
     img_size_z: 6
     resize_xy: crop
     use_imagenet_stats: true
-    use_rotate_x: false
     batch_size: null
     batch_size_full: null
     batch_size_full_apply_epoch: 10
