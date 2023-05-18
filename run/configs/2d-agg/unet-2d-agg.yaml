@@ -119,6 +119,7 @@ data:
     crop_size_z: 64
     img_size: 256
     img_size_z: 64
+    resize_xy: crop
     use_imagenet_stats: true
     use_rotate_x: false
     batch_size: null

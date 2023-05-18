@@ -1,3 +1,4 @@
+import logging
 import random
 import cv2
 import numpy as np
@@ -6,6 +7,9 @@ from typing import Dict
 from albumentations import Rotate, DualTransform, ImageOnlyTransform, Resize, RandomScale
 from albumentations.augmentations.crops import functional as F_crops
 from albumentations.augmentations.geometric import functional as F_geometric
+
+
+logger = logging.getLogger(__name__)
 
 
 class RotateX(Rotate):
@@ -47,6 +51,12 @@ class RandomCropVolumeInside2dMask:
         p=1.0,
         crop_mask_index=0,
     ):
+        if not ((height is not None and width is not None) or depth is not None):
+            logger.warning(
+                f"Eigher height and width or depth should be not None. "
+                f"Got height={height}, width={width}, depth={depth}. "
+                f"No transform will be performed."
+            )
         self.height = height
         self.width = width
         self.depth = depth
@@ -55,42 +65,47 @@ class RandomCropVolumeInside2dMask:
         self.crop_mask_index = crop_mask_index
     
     def __call__(self, *args, force_apply: bool = False, **kwargs) -> Dict[str, np.ndarray]:
-        # Toss a coin
-        if not force_apply and not self.always_apply and random.random() > self.p:
-            return kwargs
+        h_start, h_end = 0, kwargs['image'].shape[0]
+        w_start, w_end = 0, kwargs['image'].shape[1]
+        if self.height is not None and self.width is not None:
+            # Toss a coin
+            if not force_apply and not self.always_apply and random.random() > self.p:
+                return kwargs
 
-        # Get crop mask
-        crop_mask = kwargs['masks'][self.crop_mask_index]  # (H, W)
+            # Get crop mask
+            crop_mask = kwargs['masks'][self.crop_mask_index]  # (H, W)
 
-        # Crop mask so that it is not on the border with
-        # height // 2, width // 2 offsets
-        crop_mask = crop_mask[
-            self.height // 2:-self.height // 2,
-            self.width // 2:-self.width // 2,
-        ]
+            # Crop mask so that it is not on the border with
+            # height // 2, width // 2 offsets
+            crop_mask = crop_mask[
+                self.height // 2:-self.height // 2,
+                self.width // 2:-self.width // 2,
+            ]
 
-        # Get indices of non-zero elements
-        # TODO: consider caching / precomputing
-        nonzero_indices = np.nonzero(crop_mask)
+            # Get indices of non-zero elements
+            # TODO: consider caching / precomputing
+            nonzero_indices = np.nonzero(crop_mask)
 
-        # Get random index
-        random_index = random.randint(0, nonzero_indices[0].shape[0] - 1)
+            # Get random index
+            random_index = random.randint(0, nonzero_indices[0].shape[0] - 1)
 
-        # Add height // 2, width // 2 offsets to center index
-        center_index = (
-            nonzero_indices[0][random_index] + self.height // 2,
-            nonzero_indices[1][random_index] + self.width // 2,
-        )
+            # Add height // 2, width // 2 offsets to center index
+            center_index = (
+                nonzero_indices[0][random_index] + self.height // 2,
+                nonzero_indices[1][random_index] + self.width // 2,
+            )
 
-        # Get crop indices
-        w_start = center_index[1] - self.width // 2
-        w_end = w_start + self.width
-        h_start = center_index[0] - self.height // 2
-        h_end = h_start + self.height
+            # Get crop indices
+            w_start = center_index[1] - self.width // 2
+            w_end = w_start + self.width
+            h_start = center_index[0] - self.height // 2
+            h_end = h_start + self.height
 
-        z_start_max = max(kwargs['image'].shape[2] - self.depth, 0)
-        z_start = np.random.randint(0, z_start_max) if z_start_max > 0 else 0
-        z_end = min(z_start + self.depth, kwargs['image'].shape[2])
+        z_start, z_end = 0, kwargs['image'].shape[2]
+        if self.depth is not None:
+            z_start_max = max(kwargs['image'].shape[2] - self.depth, 0)
+            z_start = np.random.randint(0, z_start_max) if z_start_max > 0 else 0
+            z_end = min(z_start + self.depth, kwargs['image'].shape[2])
 
         # Crop data
         kwargs['image'] = kwargs['image'][h_start:h_end, w_start:w_end, z_start:z_end]
@@ -169,13 +184,20 @@ class CenterCropVolume(DualTransform):
 
     def __init__(self, height, width, depth, always_apply=False, p=1.0):
         super().__init__(always_apply, p)
+        if not ((height is not None and width is not None) or depth is not None):
+            logger.warning(
+                f"Eigher height and width or depth should be not None. "
+                f"Got height={height}, width={width}, depth={depth}. "
+                f"No transform will be performed."
+            )
         self.height = height
         self.width = width
         self.depth = depth
 
     def apply(self, img, is_mask=False, **params):
-        img = F_crops.center_crop(img, self.height, self.width)
-        if not is_mask:
+        if self.height is not None and self.width is not None:
+            img = F_crops.center_crop(img, self.height, self.width)
+        if not is_mask and self.depth is not None:
             z = max((img.shape[2] - self.depth) // 2, 0)
             img = img[:, :, z:min(z + self.depth, img.shape[2])]
         return img

@@ -10,7 +10,14 @@ from torch.utils.data import DataLoader
 from albumentations.pytorch import ToTensorV2
 
 from src.data.datasets import InMemorySurfaceVolumeDataset
-from src.data.transforms import RandomCropVolumeInside2dMask, CenterCropVolume, RandomScaleResize, ResizeVolume, RotateX, ToCHWD, ToWritable
+from src.data.transforms import (
+    RandomCropVolumeInside2dMask, 
+    CenterCropVolume, 
+    RandomScaleResize, 
+    RotateX, 
+    ToCHWD, 
+    ToWritable
+)
 from src.utils.utils import surface_volume_collate_fn
 
 
@@ -112,6 +119,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         crop_size_z: int = 48,
         img_size: int = 256,
         img_size_z: int = 64,
+        resize_xy: str = 'crop',
         use_imagenet_stats: bool = True,
         use_rotate_x: bool = False,
         batch_size: int = 32,
@@ -147,34 +155,59 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         self.collate_fn = surface_volume_collate_fn
 
     def build_transforms(self) -> None:
-        rotate_x_transform = []
-        if self.hparams.use_rotate_x:
-            rotate_x_transform.append(RotateX(p=0.5, limit=1, value=0, mask_value=0))
-        self.train_transform = A.Compose(
-            [
+        train_resize_transform, val_resize_transform = [], []
+        if self.hparams.resize_xy == 'crop':
+            # Crop to crop_size and resize to img_size
+            train_resize_transform = [ 
                 RandomCropVolumeInside2dMask(
-                    height=int(1.1 * self.hparams.crop_size), 
-                    width=int(1.1 * self.hparams.crop_size), 
-                    depth=int(1.1 * self.hparams.crop_size_z),
+                    height=self.hparams.crop_size, 
+                    width=self.hparams.crop_size, 
+                    depth=None,
                     always_apply=True,
                     crop_mask_index=0,
                 ),
-                ToWritable(),
-                *rotate_x_transform,
-                A.Rotate(p=0.5, limit=30, value=0, mask_value=0),
-                RandomScaleResize(p=0.5, scale_limit=0.1),
+                A.Resize(
+                    height=self.hparams.img_size, 
+                    width=self.hparams.img_size, 
+                    always_apply=True,
+                )
+            ]
+            # Resize anyway: crop is done in dataset
+            # for that case
+            val_resize_transform = [
+                A.Resize(
+                    height=self.hparams.img_size, 
+                    width=self.hparams.img_size, 
+                    always_apply=True,
+                )
+            ]
+        elif self.hparams.resize_xy == 'resize':
+            # Simply resize to img_size
+            train_resize_transform = val_resize_transform = [
+                A.Resize(
+                    height=self.hparams.img_size, 
+                    width=self.hparams.img_size, 
+                    always_apply=True,
+                )
+            ]
+        elif self.hparams.resize_xy == 'none':  # memory hungry
+            pass
+        else:
+            raise ValueError(f'Unknown resize_xy: {self.hparams.resize_xy}')
+
+        self.train_transform = A.Compose(
+            [
                 CenterCropVolume(
-                    height=self.hparams.crop_size, 
-                    width=self.hparams.crop_size,
+                    height=None, 
+                    width=None,
                     depth=self.hparams.crop_size_z,
                     always_apply=True,
                 ),
-                ResizeVolume(
-                    height=self.hparams.img_size,
-                    width=self.hparams.img_size,
-                    depth=self.hparams.img_size_z,
-                    always_apply=True,
-                ),
+                *train_resize_transform,
+                ToWritable(),
+                RotateX(p=0.5, limit=1, value=0, mask_value=0),
+                A.Rotate(p=0.5, limit=30, value=0, mask_value=0),
+                RandomScaleResize(p=0.5, scale_limit=0.1),
                 A.HorizontalFlip(p=0.5),
                 A.VerticalFlip(p=0.5),
                 A.RandomBrightnessContrast(p=0.5, brightness_limit=0.1, contrast_limit=0.1),
@@ -190,19 +223,14 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         )
         self.val_transform = self.test_transform = A.Compose(
             [
-                ToWritable(),  # TODO: remove this
                 CenterCropVolume(
-                    height=self.hparams.crop_size, 
-                    width=self.hparams.crop_size,
+                    height=None, 
+                    width=None,
                     depth=self.hparams.crop_size_z,
                     always_apply=True,
                 ),
-                ResizeVolume(
-                    height=self.hparams.img_size,
-                    width=self.hparams.img_size,
-                    depth=self.hparams.img_size_z,
-                    always_apply=True,
-                ),
+                *val_resize_transform,
+                ToWritable(),
                 A.Normalize(
                     max_pixel_value=MAX_PIXEL_VALUE,
                     mean=self.train_volume_mean,
@@ -236,6 +264,11 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     self.train_volume_mean, self.train_volume_std = \
                         calc_mean_std(volumes, scroll_masks)
 
+                # Will sample patches from each volume 200 times
+                # each epoch for 'crop' or will provide whole volume once
+                # for 'resize' or 'none'
+                train_n_repeat = 200 if self.hparams.resize_xy == 'crop' else 1
+                
                 self.train_dataset = InMemorySurfaceVolumeDataset(
                     volumes=volumes, 
                     scroll_masks=scroll_masks, 
@@ -243,8 +276,10 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     ir_images=ir_images, 
                     ink_masks=ink_masks,
                     transform=self.train_transform,
-                    patch_size=None,  # patches are generated in dataloader randomly
-                    n_repeat=200,  # sample patches from each volume 200 times
+                    # Patches are generated in dataloader randomly 
+                    # or whole volume is provided
+                    patch_size=None,
+                    n_repeat=train_n_repeat,
                 )
 
                 val_surface_volume_dirs = [
@@ -253,6 +288,14 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 ]
                 volumes, scroll_masks, ir_images, ink_masks = \
                     read_data(val_surface_volume_dirs)
+                
+                # Controls whether val dataset will be cropped to patches (crop_size)
+                # or whole volume is provided (None)
+                val_patch_size = \
+                    None \
+                    if self.hparams.resize_xy in ['resize', 'none'] else \
+                    self.hparams.crop_size
+                
                 self.val_dataset = InMemorySurfaceVolumeDataset(
                     volumes=volumes, 
                     scroll_masks=scroll_masks, 
@@ -260,7 +303,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     ir_images=ir_images, 
                     ink_masks=ink_masks,
                     transform=self.val_transform,
-                    patch_size=self.hparams.crop_size,  # patch without overlap
+                    patch_size=val_patch_size,
                     n_repeat=1,  # no repeats for validation
                 )
             else:
