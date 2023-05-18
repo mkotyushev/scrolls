@@ -198,8 +198,15 @@ class CenterCropVolume(DualTransform):
         if self.height is not None and self.width is not None:
             img = F_crops.center_crop(img, self.height, self.width)
         if not is_mask and self.depth is not None:
-            z = max((img.shape[2] - self.depth) // 2, 0)
-            img = img[:, :, z:min(z + self.depth, img.shape[2])]
+            if img.shape[2] < self.depth:
+                logger.warning(
+                    f"Depth of the image is {img.shape[2]} but depth of the crop is {self.depth}. "
+                    f"All the depth of the image will be used."
+                )
+
+            z_start = max((img.shape[2] - self.depth) // 2, 0)
+            z_end = min(z_start + self.depth, img.shape[2])
+            img = img[:, :, z_start:z_end]
         return img
 
     def apply_to_mask(self, img: np.ndarray, **params) -> np.ndarray:
