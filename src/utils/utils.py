@@ -15,6 +15,8 @@ from timm.models import FeatureListNet
 from patchify import unpatchify
 from torchvision.utils import make_grid
 
+from src.model.unet_3d_acs import AcsConvnextWrapper
+
 
 class MyLightningCLI(LightningCLI):
     def add_arguments_to_parser(self, parser):
@@ -179,12 +181,12 @@ def get_num_layers(model: FeatureListNet):
     return len([key for key in model if 'layers' in key])
 
 
-def get_feature_channels(model: FeatureListNet | FeatureExtractorWrapper, input_shape):
+def get_feature_channels(model: FeatureListNet | FeatureExtractorWrapper | AcsConvnextWrapper, input_shape):
     is_training = model.training
     model.eval()
     x = torch.randn(1, *input_shape)
     y = model(x)
-    if isinstance(model, FeatureExtractorWrapper):
+    if isinstance(model, (FeatureExtractorWrapper, AcsConvnextWrapper)):
         channel_index = 1
     else:
         channel_index = 3

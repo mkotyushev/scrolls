@@ -12,6 +12,8 @@ from torchmetrics import Metric
 from torchmetrics.classification import BinaryFBetaScore
 from lightning.pytorch.utilities import grad_norm
 from unittest.mock import patch
+from acsconv.models.convnext import convnext_small
+from acsconv.operators import ACSConv
 
 from src.model.smp import Unet, patch_first_conv
 from src.model.swin_transformer_v2_pseudo_3d import (
@@ -20,6 +22,7 @@ from src.model.swin_transformer_v2_pseudo_3d import (
 )
 from src.model.unet_2d_agg import Unet2dAgg
 from src.model.unet_2d import Unet2d
+from src.model.unet_3d_acs import AcsConvnextWrapper, UNet3dAcs
 from src.utils.utils import (
     FeatureExtractorWrapper, 
     PredictionTargetPreviewAgg, 
@@ -368,16 +371,26 @@ backbone_name_to_params = {
         'upsampling': 4,
         'decoder_channels': (256, 128, 64),
         'format': 'NCHW',
+    },
+    'convnext_small_1k': {
+        'img_size': (224, 224),
+        'upsampling': 4,
+        'decoder_mid_channels': (128, 64, 32),
+        'decoder_out_channels': (256, 128, 64),
+        'format': 'NCHW',
     }
 }
 
 
 def build_segmentation(backbone_name, type_, agg='max', in_channels=1):
-    encoder_2d = timm.create_model(
-        backbone_name, 
-        features_only=True,
-        pretrained=True,
-    )
+    """Build segmentation model."""
+    encoder_2d = None
+    if type_ != '3d_acs':
+        encoder_2d = timm.create_model(
+            backbone_name, 
+            features_only=True,
+            pretrained=True,
+        )
     if type_ == 'pseudo_3d':
         with patch('timm.models.swin_transformer_v2.SwinTransformerV2', SwinTransformerV2Pseudo3d):
             encoder_pseudo_3d = timm.create_model(
@@ -438,6 +451,30 @@ def build_segmentation(backbone_name, type_, agg='max', in_channels=1):
             model = Unet2d(unet)
         elif type_ == '2d_agg':
             model = Unet2dAgg(unet, agg=agg)
+    elif type_ == '3d_acs':
+        if backbone_name == 'convnext_small_1k':
+            encoder = convnext_small(in_chans=3, pretrained=True)
+            patch_first_conv(
+                encoder, 
+                new_in_channels=1,
+                default_in_channels=3, 
+                pretrained=True,
+                conv_type=ACSConv,
+            )
+            encoder = AcsConvnextWrapper(encoder)
+        else:
+            raise NotImplementedError(f'Unknown backbone {backbone_name} for type {type_}.')
+        model = UNet3dAcs(
+            encoder=encoder,
+            encoder_channels=get_feature_channels(
+                encoder,
+                input_shape=(1, *backbone_name_to_params[backbone_name]['img_size'], in_channels)
+            ),
+            decoder_mid_channels=backbone_name_to_params[backbone_name]['decoder_mid_channels'],
+            decoder_out_channels=backbone_name_to_params[backbone_name]['decoder_out_channels'],
+            classes=1,
+            upsampling=backbone_name_to_params[backbone_name]['upsampling'],
+        )
     else:
         raise NotImplementedError(f'Unknown type {type_}.')
 
