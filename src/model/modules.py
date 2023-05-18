@@ -81,11 +81,11 @@ class BaseModule(LightningModule):
         if nan_mask.any():
             if not self.hparams.skip_nan:
                 raise ValueError(
-                    f'Got {nan_mask.sum()} / {nan_mask.shape[0]} nan values in update_metrics. '
+                    f'Got {nan_mask.sum()} / {nan_mask.numel()} nan values in update_metrics. '
                     f'Use skip_nan=True to skip them.'
                 )
             logger.warning(
-                f'Got {nan_mask.sum()} / {nan_mask.shape[0]} nan values in update_metrics. '
+                f'Got {nan_mask.sum()} / {nan_mask.numel()} nan values in update_metrics. '
                 f'Dropping them & corresponding targets.'
             )
             y_pred = y_pred[~nan_mask]
