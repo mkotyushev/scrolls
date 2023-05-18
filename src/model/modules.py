@@ -12,7 +12,7 @@ from torchmetrics.classification import BinaryFBetaScore
 from lightning.pytorch.utilities import grad_norm
 from unittest.mock import patch
 
-from src.model.smp import Unet
+from src.model.smp import Unet, patch_first_conv
 from src.model.swin_transformer_v2_pseudo_3d import (
     SwinTransformerV2Pseudo3d, 
     map_pretrained_2d_to_pseudo_3d, 
@@ -371,7 +371,7 @@ backbone_name_to_params = {
 }
 
 
-def build_segmentation(backbone_name, type_, agg='max'):
+def build_segmentation(backbone_name, type_, agg='max', in_channels=1):
     encoder_2d = timm.create_model(
         backbone_name, 
         features_only=True,
@@ -400,9 +400,22 @@ def build_segmentation(backbone_name, type_, agg='max'):
             classes=1,
             upsampling=backbone_name_to_params[backbone_name]['upsampling'],
         )
-    elif type_ == '2d_agg':
+    elif type_.startswith('2d'):
         encoder = encoder_2d
-        encoder = convert_to_grayscale(encoder, backbone_name)
+        if type_ == '2d':
+            encoder = patch_first_conv(
+                encoder, 
+                new_in_channels=in_channels,
+                default_in_channels=3, 
+                pretrained=True
+            )
+        elif type_ == '2d_agg':
+            encoder = patch_first_conv(
+                encoder, 
+                new_in_channels=1,
+                default_in_channels=3, 
+                pretrained=True
+            )
         encoder = FeatureExtractorWrapper(
             encoder, 
             format=backbone_name_to_params[backbone_name]['format']
@@ -417,7 +430,10 @@ def build_segmentation(backbone_name, type_, agg='max'):
             classes=1,
             upsampling=backbone_name_to_params[backbone_name]['upsampling'],
         )
-        model = UnetAgg(unet, agg=agg)
+        if type_ == '2d':
+            model = unet
+        elif type_ == '2d_agg':
+            model = UnetAgg(unet, agg=agg)
     else:
         raise NotImplementedError(f'Unknown type {type_}.')
 
@@ -434,6 +450,7 @@ class SegmentationModule(BaseModule):
         type_: str = 'pseudo_3d',
         backbone_name: str = 'swinv2_tiny_window8_256.ms_in1k',
         agg: str = 'max',
+        in_channels: int = 6,
         label_smoothing: float = 0.0,
         pos_weight: float = 1.0,
         optimizer_init: Optional[Dict[str, Any]] = None,
@@ -458,7 +475,7 @@ class SegmentationModule(BaseModule):
             prog_bar_names=prog_bar_names,
         )
         self.save_hyperparameters()
-        self.model = build_segmentation(backbone_name, type_, agg=agg)
+        self.model = build_segmentation(backbone_name, type_, agg=agg, in_channels=in_channels)
 
         if finetuning is not None and finetuning['unfreeze_before_epoch'] == 0:
             self.unfreeze()
