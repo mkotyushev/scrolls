@@ -1,6 +1,7 @@
 import logging
 import timm
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import ModuleDict
 from lightning import LightningModule
@@ -354,8 +355,8 @@ class BaseModule(LightningModule):
 
 backbone_name_to_params = {
     'swinv2_tiny_window8_256.ms_in1k': {
-        'window_size': (8, 8, 16),
-        'img_size': (256, 256, 64),
+        'window_size': (8, 8),
+        'img_size': (256, 256),
         # TODO: SWIN v2 has patch size 4, upsampling at 
         # the last step degrades quality
         'upsampling': 4,
@@ -363,8 +364,7 @@ backbone_name_to_params = {
         'format': 'NHWC',
     },
     'convnext_small.in12k_ft_in1k_384': {
-        'window_size': (8, 8, 16),
-        'img_size': (384, 384, 64),
+        'img_size': (384, 384),
         'upsampling': 4,
         'decoder_channels': (256, 128, 64),
         'format': 'NCHW',
@@ -384,18 +384,24 @@ def build_segmentation(backbone_name, type_, agg='max', in_channels=1):
                 backbone_name, 
                 features_only=True,
                 pretrained=False,
-                window_size=backbone_name_to_params[backbone_name]['window_size'],
-                img_size=backbone_name_to_params[backbone_name]['img_size'],
+                window_size=(*backbone_name_to_params[backbone_name]['window_size'], in_channels // 4),
+                img_size=(*backbone_name_to_params[backbone_name]['img_size'], in_channels),
             )
         encoder = map_pretrained_2d_to_pseudo_3d(encoder_2d, encoder_pseudo_3d)
-        encoder = convert_to_grayscale(encoder, backbone_name)
-        encoder = FeatureExtractorWrapper(encoder)
+        patch_first_conv(
+            encoder, 
+            new_in_channels=1,
+            default_in_channels=3, 
+            pretrained=True,
+            conv_type=nn.Conv3d,
+        )
+        encoder = FeatureExtractorWrapper(encoder, format=backbone_name_to_params[backbone_name]['format'])
         
         model = Unet(
             encoder=encoder,
             encoder_channels=get_feature_channels(
                 encoder, 
-                input_shape=(1, *backbone_name_to_params[backbone_name]['img_size'])
+                input_shape=(1, *backbone_name_to_params[backbone_name]['img_size'], in_channels)
             ),
             decoder_channels=backbone_name_to_params[backbone_name]['decoder_channels'],
             classes=1,
@@ -410,7 +416,8 @@ def build_segmentation(backbone_name, type_, agg='max', in_channels=1):
             encoder, 
             new_in_channels=in_channels,
             default_in_channels=3, 
-            pretrained=True
+            pretrained=True,
+            conv_type=nn.Conv2d,
         )
 
         encoder = FeatureExtractorWrapper(
@@ -421,7 +428,7 @@ def build_segmentation(backbone_name, type_, agg='max', in_channels=1):
             encoder=encoder,
             encoder_channels=get_feature_channels(
                 encoder, 
-                input_shape=(in_channels, *backbone_name_to_params[backbone_name]['img_size'][:2])
+                input_shape=(in_channels, *backbone_name_to_params[backbone_name]['img_size'])
             ),
             decoder_channels=backbone_name_to_params[backbone_name]['decoder_channels'],
             classes=1,

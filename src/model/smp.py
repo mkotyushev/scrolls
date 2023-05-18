@@ -185,7 +185,11 @@ class SegmentationModel(torch.nn.Module):
             initialize_head(self.classification_head)
 
     def check_input_shape(self, x):
-        h, w = x.shape[-2:]
+        if len(x.shape) == 4:
+            h, w = x.shape[-2:]
+        else:
+            assert len(x.shape) == 5
+            h, w = x.shape[-3:-1]
         output_stride = self.encoder.output_stride
         if h % output_stride != 0 or w % output_stride != 0:
             new_h = (h // output_stride + 1) * output_stride if h % output_stride != 0 else h
@@ -345,7 +349,7 @@ class UnetDecoder(nn.Module):
         return x
 
 
-def patch_first_conv(model, new_in_channels, default_in_channels=3, pretrained=True):
+def patch_first_conv(model, new_in_channels, default_in_channels=3, pretrained=True, conv_type=nn.Conv2d):
     """Change first convolution layer input channels.
     In case:
         in_channels == 1 or in_channels == 2 -> reuse original weights
@@ -354,7 +358,7 @@ def patch_first_conv(model, new_in_channels, default_in_channels=3, pretrained=T
 
     # get first conv
     for module in model.modules():
-        if isinstance(module, nn.Conv2d) and module.in_channels == default_in_channels:
+        if isinstance(module, conv_type) and module.in_channels == default_in_channels:
             break
 
     weight = module.weight.detach()
