@@ -17,7 +17,8 @@ from src.model.swin_transformer_v2_pseudo_3d import (
     SwinTransformerV2Pseudo3d, 
     map_pretrained_2d_to_pseudo_3d, 
 )
-from src.model.unet_agg import UnetAgg
+from src.model.unet_2d_agg import Unet2dAgg
+from src.model.unet_2d import Unet2d
 from src.utils.utils import (
     FeatureExtractorWrapper, 
     PredictionTargetPreviewAgg, 
@@ -402,20 +403,16 @@ def build_segmentation(backbone_name, type_, agg='max', in_channels=1):
         )
     elif type_.startswith('2d'):
         encoder = encoder_2d
-        if type_ == '2d':
-            encoder = patch_first_conv(
-                encoder, 
-                new_in_channels=in_channels,
-                default_in_channels=3, 
-                pretrained=True
-            )
-        elif type_ == '2d_agg':
-            encoder = patch_first_conv(
-                encoder, 
-                new_in_channels=1,
-                default_in_channels=3, 
-                pretrained=True
-            )
+
+        if type_ == '2d_agg':
+            in_channels = 1
+        patch_first_conv(
+            encoder, 
+            new_in_channels=in_channels,
+            default_in_channels=3, 
+            pretrained=True
+        )
+
         encoder = FeatureExtractorWrapper(
             encoder, 
             format=backbone_name_to_params[backbone_name]['format']
@@ -424,16 +421,16 @@ def build_segmentation(backbone_name, type_, agg='max', in_channels=1):
             encoder=encoder,
             encoder_channels=get_feature_channels(
                 encoder, 
-                input_shape=(1, *backbone_name_to_params[backbone_name]['img_size'][:2])
+                input_shape=(in_channels, *backbone_name_to_params[backbone_name]['img_size'][:2])
             ),
             decoder_channels=backbone_name_to_params[backbone_name]['decoder_channels'],
             classes=1,
             upsampling=backbone_name_to_params[backbone_name]['upsampling'],
         )
         if type_ == '2d':
-            model = unet
+            model = Unet2d(unet)
         elif type_ == '2d_agg':
-            model = UnetAgg(unet, agg=agg)
+            model = Unet2dAgg(unet, agg=agg)
     else:
         raise NotImplementedError(f'Unknown type {type_}.')
 

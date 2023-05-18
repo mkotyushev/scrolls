@@ -1,7 +1,8 @@
 import torch.nn as nn
 
 
-class UnetAgg(nn.Module):
+class Unet2dAgg(nn.Module):
+    """Wrapper to predict for each Z slice and aggregate the results."""
     def __init__(self, model, agg='max'):
         super().__init__()
         self.model = model
