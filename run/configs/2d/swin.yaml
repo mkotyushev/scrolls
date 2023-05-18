@@ -1,0 +1,11 @@
+model:
+  init_args:
+    backbone_name: swinv2_tiny_window8_256.ms_in1k
+data:
+  init_args:
+    crop_size: 256
+    crop_size_z: 6
+    img_size: 256
+    img_size_z: 6
+    batch_size: 16
+    batch_size_full: 4
