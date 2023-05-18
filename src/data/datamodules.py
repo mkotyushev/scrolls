@@ -205,11 +205,25 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 *train_resize_transform,
                 ToWritable(),
                 RotateX(p=0.5, limit=1, value=0, mask_value=0),
-                A.Rotate(p=0.5, limit=30, value=0, mask_value=0),
-                RandomScaleResize(p=0.5, scale_limit=0.1),
                 A.HorizontalFlip(p=0.5),
                 A.VerticalFlip(p=0.5),
                 A.RandomBrightnessContrast(p=0.5, brightness_limit=0.1, contrast_limit=0.1),
+                A.ShiftScaleRotate(p=0.75),
+                A.OneOf(
+                    [
+                        A.GaussNoise(var_limit=[10, 50]),
+                        A.GaussianBlur(),
+                        A.MotionBlur(),
+                    ], 
+                    p=0.4
+                ),
+                A.GridDistortion(num_steps=5, distort_limit=0.3, p=0.5),
+                A.CoarseDropout(
+                    max_holes=1, 
+                    max_width=int(self.hparams.img_size * 0.3), 
+                    max_height=int(self.hparams.img_size * 0.3), 
+                    mask_fill_value=0, p=0.5
+                ),
                 A.Normalize(
                     max_pixel_value=MAX_PIXEL_VALUE,
                     mean=self.train_volume_mean,
