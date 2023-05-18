@@ -109,9 +109,10 @@ data:
     surface_volume_dirs_test: null
     val_dir_indices: 2
     crop_size: 512
-    crop_size_z: 60
+    crop_size_z: 6
     img_size: 256
-    img_size_z: 64
+    img_size_z: 6
+    resize_xy: crop
     use_imagenet_stats: true
     batch_size: 2
     batch_size_full: 2
