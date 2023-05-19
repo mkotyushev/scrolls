@@ -34,7 +34,6 @@ class InMemorySurfaceVolumeDataset:
         ink_masks: Optional[np.ndarray] = None,
         transform: Optional[Callable] = None,
         patch_size: Optional[Tuple[int, int]] = None,
-        n_repeat: int = 1,
     ):
         self.volumes = volumes
         self.scroll_masks = scroll_masks
@@ -47,7 +46,6 @@ class InMemorySurfaceVolumeDataset:
 
         self.transform = transform
         self.patch_size = to_2tuple(patch_size)
-        self.n_repeat = n_repeat
 
         # Patchify
         if patch_size is not None:
@@ -61,7 +59,7 @@ class InMemorySurfaceVolumeDataset:
                 self.patchify_data()
 
     def __len__(self) -> int:
-        return len(self.volumes) * self.n_repeat
+        return len(self.volumes)
     
     def patchify_data(self):
         """Split data into patches."""
@@ -185,8 +183,6 @@ class InMemorySurfaceVolumeDataset:
         Optional[np.ndarray],  # optional IR image, (H, W)
         Optional[np.ndarray],  # optional labels, (H, W)
     ]:
-        idx = idx % len(self.volumes)  # for repeated case
-
         # Always here
         image = self.volumes[idx]
         masks = [self.scroll_masks[idx]]

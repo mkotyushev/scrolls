@@ -1,8 +1,10 @@
 import logging
+import math
 import cv2
 import albumentations as A
 import numpy as np
 import torch.multiprocessing as mp
+from torch.utils.data.sampler import RandomSampler
 from pathlib import Path
 from typing import List, Optional
 from lightning import LightningDataModule
@@ -108,6 +110,25 @@ def calc_mean_std(volumes, scroll_masks):
 
     return mean, std
 
+
+def get_n_repeats(scroll_masks, crop_size):
+    assert all(
+        [
+            scroll_mask.min() == 0 and scroll_mask.max() == 1
+            for scroll_mask in scroll_masks
+        ]
+    )
+    n_repeats = max(
+        [
+            math.ceil(scroll_mask.sum() / (crop_size ** 2))
+            for scroll_mask in scroll_masks
+        ]
+    )
+    return n_repeats
+
+
+# class RepeatsSampler:
+        
 
 class SurfaceVolumeDatamodule(LightningDataModule):
     """Base datamodule for surface volume data."""
@@ -280,11 +301,6 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 if not self.hparams.use_imagenet_stats:
                     self.train_volume_mean, self.train_volume_std = \
                         calc_mean_std(volumes, scroll_masks)
-
-                # Will sample patches from each volume 200 times
-                # each epoch for 'crop' or will provide whole volume once
-                # for 'resize' or 'none'
-                train_n_repeat = 200 if self.hparams.resize_xy == 'crop' else 1
                 
                 self.train_dataset = InMemorySurfaceVolumeDataset(
                     volumes=volumes, 
@@ -296,7 +312,6 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     # Patches are generated in dataloader randomly 
                     # or whole volume is provided
                     patch_size=None,
-                    n_repeat=train_n_repeat,
                 )
 
                 val_surface_volume_dirs = [
@@ -321,7 +336,6 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     ink_masks=ink_masks,
                     transform=self.val_transform,
                     patch_size=val_patch_size,
-                    n_repeat=1,  # no repeats for validation
                 )
             else:
                 volumes, scroll_masks, ir_images, ink_masks = \
@@ -340,7 +354,6 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     ink_masks=ink_masks,
                     transform=self.train_transform,
                     patch_size=None,  # patches are generated in dataloader randomly
-                    n_repeat=200,  # sample patches from each volume 200 times
                 )
                 self.val_dataset = None
         if (
@@ -378,6 +391,25 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         if self.hparams.batch_size_full_apply_epoch is not None and self.trainer is not None:
             if self.trainer.current_epoch >= self.hparams.batch_size_full_apply_epoch:
                 batch_size = self.hparams.batch_size_full
+        
+        # Will sample patches num_samples times 
+        # (where num_samples == max (mask == 1 area) / (crop area) per all masks)
+        # each epoch for 'crop' or will provide whole volume once
+        # for 'resize' or 'none'
+        # 
+        # For 'crop' such sampling provides uniform sampling of volumes, 
+        # but oversampling volumes (in patches terms) with smaller area.
+        sampler, shuffle = None, True
+        if self.hparams.resize_xy == 'crop':
+            num_samples = \
+                len(self.train_dataset.scroll_masks) * \
+                get_n_repeats(self.train_dataset.scroll_masks, self.hparams.crop_size)
+            sampler = RandomSampler(self.train_dataset, replacement=True, num_samples=num_samples)
+            shuffle = None
+
+            if self.trainer.current_epoch == 0:
+                logger.info(f'num_samples: {num_samples}')
+        
         return DataLoader(
             dataset=self.train_dataset, 
             batch_size=batch_size, 
@@ -386,8 +418,8 @@ class SurfaceVolumeDatamodule(LightningDataModule):
             prefetch_factor=self.hparams.prefetch_factor,
             persistent_workers=self.hparams.persistent_workers,
             collate_fn=self.collate_fn,
-            sampler=None,
-            shuffle=True
+            sampler=sampler,
+            shuffle=shuffle,
         )
 
     def val_dataloader(self) -> DataLoader:
