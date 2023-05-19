@@ -62,7 +62,7 @@ model:
   init_args:
     type_: 3d_acs
     in_channels: 32
-    backbone_name: convnext_small_1k
+    backbone_name: convnext_small.in12k_ft_in1k_384
     pos_weight: 1.0
     label_smoothing: 0.0
     optimizer_init: 
