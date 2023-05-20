@@ -60,8 +60,7 @@ trainer:
 model:
   class_path: src.model.modules.SegmentationModule
   init_args:
-    type_: 2d_agg
-    agg: mean
+    type_: 2d_agg_mean
     backbone_name: null
     pos_weight: 5.0
     label_smoothing: 0.0

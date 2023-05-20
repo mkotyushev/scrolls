@@ -376,7 +376,7 @@ backbone_name_to_params = {
 }
 
 
-def build_segmentation(backbone_name, type_, agg='max', in_channels=1):
+def build_segmentation(backbone_name, type_, in_channels=1):
     """Build segmentation model."""
     encoder_2d = timm.create_model(
         backbone_name, 
@@ -415,7 +415,7 @@ def build_segmentation(backbone_name, type_, agg='max', in_channels=1):
     elif type_.startswith('2d'):
         encoder = encoder_2d
 
-        if type_ == '2d_agg':
+        if type_.startswith('2d_agg'):
             in_channels = 1
         patch_first_conv(
             encoder, 
@@ -439,11 +439,13 @@ def build_segmentation(backbone_name, type_, agg='max', in_channels=1):
             classes=1,
             upsampling=backbone_name_to_params[backbone_name]['upsampling'],
         )
-        if type_ == '2d':
-            model = Unet2d(unet)
-        elif type_ == '2d_agg':
+        
+        if type_.startswith('2d_agg'):
+            agg = type_.split('2d_agg_')[-1]
             model = Unet2dAgg(unet, agg=agg)
-    elif type_ == '3d_acs':
+        else:
+            model = Unet2d(unet)
+    elif type_.startswith('3d_acs'):
         encoder = encoder_2d
         patch_first_conv(
             encoder, 
@@ -462,6 +464,7 @@ def build_segmentation(backbone_name, type_, agg='max', in_channels=1):
             format=backbone_name_to_params[backbone_name]['format']
         )
 
+        decoder_attention_type = None if type_== '3d_acs' else type_.split('3d_acs_')[-1]
         model = UNet3dAcs(
             encoder=encoder,
             encoder_channels=get_feature_channels(
@@ -471,6 +474,8 @@ def build_segmentation(backbone_name, type_, agg='max', in_channels=1):
             decoder_mid_channels=backbone_name_to_params[backbone_name]['decoder_mid_channels'],
             decoder_out_channels=backbone_name_to_params[backbone_name]['decoder_out_channels'],
             classes=1,
+            depth=in_channels // backbone_name_to_params[backbone_name]['upsampling'],
+            decoder_attention_type=decoder_attention_type,
             upsampling=backbone_name_to_params[backbone_name]['upsampling'],
         )
     else:
@@ -488,7 +493,6 @@ class SegmentationModule(BaseModule):
         self, 
         type_: str = 'pseudo_3d',
         backbone_name: str = 'swinv2_tiny_window8_256.ms_in1k',
-        agg: str = 'max',
         in_channels: int = 6,
         label_smoothing: float = 0.0,
         pos_weight: float = 1.0,
@@ -514,7 +518,11 @@ class SegmentationModule(BaseModule):
             prog_bar_names=prog_bar_names,
         )
         self.save_hyperparameters()
-        self.model = build_segmentation(backbone_name, type_, agg=agg, in_channels=in_channels)
+        self.model = build_segmentation(
+            backbone_name, 
+            type_, 
+            in_channels=in_channels,
+        )
 
         if finetuning is not None and finetuning['unfreeze_before_epoch'] == 0:
             self.unfreeze()
@@ -524,12 +532,20 @@ class SegmentationModule(BaseModule):
     def compute_loss_preds(self, batch, *args, **kwargs):
         """Compute losses and predictions."""
         preds = self.model(batch['image'])
+
+        # 3d_acs_weights outputs probabilities, not logits
+        weight = torch.where(
+            batch['mask_2'] == 1,
+            torch.tensor(self.hparams.pos_weight, dtype=torch.float32, device=batch['mask_2'].device),
+            torch.tensor(1.0, dtype=torch.float32, device=batch['mask_2'].device),
+        ).flatten()
+
         losses = {
             'bce': F.binary_cross_entropy_with_logits(
                 preds.squeeze(1).float().flatten(),
                 batch['mask_2'].float().flatten(),
                 reduction='mean',
-                pos_weight=torch.tensor(self.hparams.pos_weight, device=preds.device),
+                weight=weight,
             ),
         }
         total_loss = sum(losses.values())

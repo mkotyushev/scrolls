@@ -137,12 +137,58 @@ class ACSConverterTimm(ACSConverter):
         return module
 
 
-class DecoderBlock(_DecoderBlock):
+class SCSEModuleAcs(nn.Module):
+    def __init__(self, in_channels, reduction=16):
+        super().__init__()
+        self.cSE = nn.Sequential(
+            nn.AdaptiveAvgPool3d(1),
+            ACSConv(in_channels, in_channels // reduction, 1),
+            nn.ReLU(inplace=True),
+            ACSConv(in_channels // reduction, in_channels, 1),
+            nn.Sigmoid(),
+        )
+        self.sSE = nn.Sequential(ACSConv(in_channels, 1, 1), nn.Sigmoid())
+
+    def forward(self, x):
+        return x * self.cSE(x) + x * self.sSE(x)
+    
+
+class AttentionAcs(nn.Module):
+    def __init__(self, name, **params):
+        super().__init__()
+
+        if name is None:
+            self.attention = nn.Identity(**params)
+        elif name == "scse":
+            self.attention = SCSEModuleAcs(**params)
+        else:
+            raise ValueError("Attention {} is not implemented".format(name))
+
+    def forward(self, x):
+        return self.attention(x)
+
+
+class DecoderBlock(nn.Module):
+    def __init__(self, in_channels, middle_channels, out_channels, attention_type=None):
+        super().__init__()
+        self.attention1 = AttentionAcs(attention_type, in_channels=in_channels)
+        self.decode = nn.Sequential(
+            ACSConv(in_channels, middle_channels, kernel_size=3, padding=1),
+            nn.BatchNorm3d(middle_channels),
+            nn.ReLU(inplace=True),
+            ACSConv(middle_channels, out_channels, kernel_size=3, padding=1),
+            nn.BatchNorm3d(out_channels),
+            nn.ReLU(inplace=True),
+        )
+        self.attention2 = AttentionAcs(attention_type, in_channels=out_channels)
+
     def forward(self, x, skip=None):
         x = F.interpolate(x, scale_factor=2, mode="nearest")
         if skip is not None:
             x = torch.cat([x, skip], dim=1)
-        x = super().forward(x)
+            x = self.attention1(x)
+        x = self.decode(x)
+        x = self.attention2(x)
         return x
 
 
@@ -152,6 +198,7 @@ class UNet3dAcsDecoder(nn.Module):
         encoder_channels, 
         decoder_mid_channels, 
         decoder_out_channels, 
+        decoder_attention_type=None,
     ):
         super().__init__()
 
@@ -169,7 +216,7 @@ class UNet3dAcsDecoder(nn.Module):
         out_channels = decoder_out_channels
         mid_channels = decoder_mid_channels
         blocks = [
-            DecoderBlock(in_ch + skip_ch, mid_ch, out_ch)
+            DecoderBlock(in_ch + skip_ch, mid_ch, out_ch, attention_type=decoder_attention_type)
             for in_ch, skip_ch, mid_ch, out_ch in zip(in_channels, skip_channels, mid_channels, out_channels)
         ]
         self.blocks = nn.ModuleList(blocks)
@@ -198,13 +245,32 @@ class GlobalAveragePooling(nn.Module):
         return x.mean(dim=self.dim, keepdim=self.keepdim)
 
 
-class SegmentationHeadAcs(nn.Sequential):
-    def __init__(self, in_channels, out_channels, kernel_size=3, activation=None, upsampling=1):
-        conv3d = ACSConv(in_channels, out_channels, kernel_size=kernel_size, padding=kernel_size // 2)
-        pooling = GlobalAveragePooling(2)  # (B, C, D, H, W) -> (B, C, H, W)
-        upsampling = nn.UpsamplingNearest2d(scale_factor=upsampling) if upsampling > 1 else nn.Identity()
-        activation = Activation(activation)
-        super().__init__(conv3d, pooling, upsampling, activation)
+class SegmentationHeadAcs(nn.Module):
+    def __init__(self, in_channels, n_classes, depth=None, activation=None, kernel_size=3, upsampling=1):
+        super().__init__()
+
+        self.conv3d = ACSConv(in_channels, n_classes, kernel_size=kernel_size, padding=kernel_size // 2)
+        if depth is not None:
+            self.pooling = nn.Linear(depth, 1)
+        else:
+            self.pooling = GlobalAveragePooling(dim=-1, keepdim=True)
+        self.upsampling = nn.UpsamplingNearest2d(scale_factor=upsampling) if upsampling > 1 else nn.Identity()
+        self.activation = Activation(activation)
+
+    def forward(self, x):
+        x = self.conv3d(x)
+        
+        # (B, C, D, H, W) -> (B, C, H, W, D)
+        x = x.permute(0, 1, 3, 4, 2)
+        # (B, C, H, W, D) -> (B, C, H, W, 1)
+        x = self.pooling(x)
+        # (B, C, H, W, 1) -> (B, C, H, W)
+        x = x.squeeze(-1)
+
+        x = self.upsampling(x)
+        x = self.activation(x)
+        
+        return x
 
 
 class UNet3dAcs(SegmentationModel):
@@ -215,6 +281,8 @@ class UNet3dAcs(SegmentationModel):
         decoder_mid_channels, 
         decoder_out_channels, 
         upsampling,
+        depth=None,
+        decoder_attention_type=None,
         classes: int = 1,
         activation: Optional[Union[str, callable]] = None,
         aux_params: Optional[dict] = None,
@@ -227,14 +295,16 @@ class UNet3dAcs(SegmentationModel):
             encoder_channels=encoder_channels,
             decoder_mid_channels=decoder_mid_channels,
             decoder_out_channels=decoder_out_channels,
+            decoder_attention_type=decoder_attention_type,
         )
 
         self.segmentation_head = SegmentationHeadAcs(
             in_channels=decoder_out_channels[-1],
-            out_channels=classes,
+            n_classes=classes,
             activation=activation,
             kernel_size=3,
             upsampling=upsampling,
+            depth=depth,
         )
 
         if aux_params is not None:

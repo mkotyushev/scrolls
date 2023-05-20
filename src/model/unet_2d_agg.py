@@ -5,6 +5,8 @@ class Unet2dAgg(nn.Module):
     """Wrapper to predict for each Z slice and aggregate the results."""
     def __init__(self, model, agg='max'):
         super().__init__()
+
+        assert agg in ['mean', 'max', 'min']
         self.model = model
         self.agg = agg
 
