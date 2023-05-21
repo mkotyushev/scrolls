@@ -30,20 +30,23 @@ logger = logging.getLogger(__name__)
 N_SLICES = 65
 MAX_PIXEL_VALUE = 65536
 def read_data(surface_volume_dirs, center_crop_z=None):
+    z_start, z_end = 0, N_SLICES
+    if center_crop_z is not None:
+        z_start = (N_SLICES - center_crop_z) // 2
+        z_end = z_start + center_crop_z
+
     # Volumes
     volumes = []
     for root in surface_volume_dirs:
         root = Path(root)
         volume = []
-        for i in range(N_SLICES):
-            v = cv2.imread(
-                str(root / 'surface_volume' / f'{i:02}.tif'),
-                cv2.IMREAD_UNCHANGED
+        for i in range(z_start, z_end):
+            volume.append(
+                cv2.imread(
+                    str(root / 'surface_volume' / f'{i:02}.tif'),
+                    cv2.IMREAD_UNCHANGED
+                )
             )
-            if center_crop_z is not None:
-                z0 = (v.shape[0] - center_crop_z) // 2
-                v = v[z0:z0+center_crop_z]
-            volume.append(v)
         volume = np.stack(volume).transpose(1, 2, 0)
         volumes.append(volume)
 
