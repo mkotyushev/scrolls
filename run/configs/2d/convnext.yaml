@@ -1,11 +1,10 @@
 model:
   init_args:
-    backbone_name: convnext_small.in12k_ft_in1k_384
+    backbone_name: convnextv2_base.fcmae_ft_in22k_in1k_384
 data:
   init_args:
-    crop_size: 384
+    crop_size: 768
     crop_size_z: 6
-    img_size: 384
+    img_size: 768
     img_size_z: 6
-    batch_size: 16
-    batch_size_full: 4
+    batch_size: 8
