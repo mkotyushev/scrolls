@@ -127,7 +127,7 @@ def get_n_repeats(scroll_masks, crop_size):
     return n_repeats
 
 
-N_REPEATS_384_WITH_FRAGMENT_2_NO_SCALE = 1330
+N_REPEATS_384_WITH_FRAGMENT_2_NO_SCALE = 665
 def get_n_repeats_hardcoded(crop_size, scale=1.0):
     """Hardcoded n_repeats based on crop_size=384 and 
     non-scaled train dataset which includes fragment 2.
