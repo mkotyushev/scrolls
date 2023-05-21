@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import ModuleDict
 from lightning import LightningModule
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Literal, Optional, Union
 from torch import Tensor
 from lightning.pytorch.cli import instantiate_class
 from torchmetrics import Metric
@@ -376,7 +376,7 @@ backbone_name_to_params = {
 }
 
 
-def build_segmentation(backbone_name, type_, in_channels=1):
+def build_segmentation(backbone_name, type_, in_channels=1, decoder_attention_type=None):
     """Build segmentation model."""
     encoder_2d = timm.create_model(
         backbone_name, 
@@ -438,6 +438,7 @@ def build_segmentation(backbone_name, type_, in_channels=1):
             decoder_channels=backbone_name_to_params[backbone_name]['decoder_channels'],
             classes=1,
             upsampling=backbone_name_to_params[backbone_name]['upsampling'],
+            decoder_attention_type=decoder_attention_type,
         )
         
         if type_.startswith('2d_agg'):
@@ -464,7 +465,6 @@ def build_segmentation(backbone_name, type_, in_channels=1):
             format=backbone_name_to_params[backbone_name]['format']
         )
 
-        decoder_attention_type = None if type_== '3d_acs' else type_.split('3d_acs_')[-1]
         model = UNet3dAcs(
             encoder=encoder,
             encoder_channels=get_feature_channels(
@@ -492,6 +492,7 @@ class SegmentationModule(BaseModule):
     def __init__(
         self, 
         type_: str = 'pseudo_3d',
+        decoder_attention_type: Literal[None, 'scse'] = None,
         backbone_name: str = 'swinv2_tiny_window8_256.ms_in1k',
         in_channels: int = 6,
         label_smoothing: float = 0.0,
@@ -522,6 +523,7 @@ class SegmentationModule(BaseModule):
             backbone_name, 
             type_, 
             in_channels=in_channels,
+            decoder_attention_type=decoder_attention_type,
         )
 
         if finetuning is not None and finetuning['unfreeze_before_epoch'] == 0:
