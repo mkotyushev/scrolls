@@ -20,7 +20,7 @@ trainer:
 
   # limit_train_batches: 10
   # limit_val_batches: 10
-  max_epochs: 16
+  max_epochs: 32
   num_sanity_val_steps: 0
   accumulate_grad_batches: 1
   reload_dataloaders_every_n_epochs: 0
@@ -65,7 +65,7 @@ model:
     decoder_attention_type: null
     in_channels: 6
     backbone_name: null
-    pos_weight: 1.0
+    pos_weight: 0.5
     label_smoothing: 0.0
     optimizer_init: 
       class_path: torch.optim.AdamW
