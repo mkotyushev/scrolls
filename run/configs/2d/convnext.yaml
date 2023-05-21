@@ -1,10 +1,12 @@
+trainer:
+  accumulate_grad_batches: 2
 model:
   init_args:
-    backbone_name: convnextv2_base.fcmae_ft_in22k_in1k_384
+    backbone_name: convnextv2_large.fcmae_ft_in22k_in1k_384
 data:
   init_args:
     crop_size: 768
     crop_size_z: 6
     img_size: 768
     img_size_z: 6
-    batch_size: 8
+    batch_size: 4
