@@ -29,19 +29,21 @@ logger = logging.getLogger(__name__)
 
 N_SLICES = 65
 MAX_PIXEL_VALUE = 65536
-def read_data(surface_volume_dirs):
+def read_data(surface_volume_dirs, center_crop_z=None):
     # Volumes
     volumes = []
     for root in surface_volume_dirs:
         root = Path(root)
         volume = []
         for i in range(N_SLICES):
-            volume.append(
-                cv2.imread(
-                    str(root / 'surface_volume' / f'{i:02}.tif'),
-                    cv2.IMREAD_UNCHANGED
-                )
+            v = cv2.imread(
+                str(root / 'surface_volume' / f'{i:02}.tif'),
+                cv2.IMREAD_UNCHANGED
             )
+            if center_crop_z is not None:
+                z0 = (v.shape[0] - center_crop_z) // 2
+                v = v[z0:z0+center_crop_z]
+            volume.append(v)
         volume = np.stack(volume).transpose(1, 2, 0)
         volumes.append(volume)
 
@@ -321,7 +323,10 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     if i not in self.hparams.val_dir_indices
                 ]
                 volumes, scroll_masks, ir_images, ink_masks = \
-                    read_data(train_surface_volume_dirs)
+                    read_data(
+                        train_surface_volume_dirs, 
+                        center_crop_z=self.hparams.crop_size_z
+                    )
                 
                 # Update mean and std
                 if not self.hparams.use_imagenet_stats:
@@ -345,7 +350,10 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     if i in self.hparams.val_dir_indices
                 ]
                 volumes, scroll_masks, ir_images, ink_masks = \
-                    read_data(val_surface_volume_dirs)
+                    read_data(
+                        val_surface_volume_dirs, 
+                        center_crop_z=self.hparams.crop_size_z
+                    )
                 
                 # Controls whether val dataset will be cropped to patches (crop_size)
                 # or whole volume is provided (None)
@@ -365,7 +373,10 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 )
             else:
                 volumes, scroll_masks, ir_images, ink_masks = \
-                    read_data(self.hparams.surface_volume_dirs)
+                    read_data(
+                        self.hparams.surface_volume_dirs, 
+                        center_crop_z=self.hparams.crop_size_z
+                    )
                 
                 # Update mean and std
                 if not self.hparams.use_imagenet_stats:
@@ -387,7 +398,10 @@ class SurfaceVolumeDatamodule(LightningDataModule):
             self.hparams.surface_volume_dirs_test is not None
         ):
             volumes, scroll_masks, ir_images, ink_masks = \
-                read_data(self.hparams.surface_volume_dirs_test)
+                read_data(
+                    self.hparams.surface_volume_dirs_test, 
+                    center_crop_z=self.hparams.crop_size_z
+                )
             self.test_dataset = InMemorySurfaceVolumeDataset(
                 volumes=volumes, 
                 scroll_masks=scroll_masks, 
