@@ -356,7 +356,7 @@ class BaseModule(LightningModule):
 
 
 backbone_name_to_params = {
-    'swinv2_tiny_window8_256.ms_in1k': {
+    'swinv2': {
         'window_size': (8, 8),
         'img_size': (256, 256),
         # TODO: SWIN v2 has patch size 4, upsampling at 
@@ -365,7 +365,15 @@ backbone_name_to_params = {
         'decoder_channels': (256, 128, 64),
         'format': 'NHWC',
     },
-    'convnext_small.in12k_ft_in1k_384': {
+    'convnext': {
+        'img_size': (384, 384),
+        'upsampling': 4,
+        'decoder_channels': (256, 128, 64),
+        'decoder_mid_channels': (128, 64, 32),
+        'decoder_out_channels': (256, 128, 64),
+        'format': 'NCHW',
+    },
+    'convnextv2': {
         'img_size': (384, 384),
         'upsampling': 4,
         'decoder_channels': (256, 128, 64),
@@ -378,6 +386,7 @@ backbone_name_to_params = {
 
 def build_segmentation(backbone_name, type_, in_channels=1, decoder_attention_type=None):
     """Build segmentation model."""
+    backbone_param_key = backbone_name.split('_')[0]
     encoder_2d = timm.create_model(
         backbone_name, 
         features_only=True,
@@ -389,8 +398,8 @@ def build_segmentation(backbone_name, type_, in_channels=1, decoder_attention_ty
                 backbone_name, 
                 features_only=True,
                 pretrained=False,
-                window_size=(*backbone_name_to_params[backbone_name]['window_size'], in_channels // 4),
-                img_size=(*backbone_name_to_params[backbone_name]['img_size'], in_channels),
+                window_size=(*backbone_name_to_params[backbone_param_key]['window_size'], in_channels // 4),
+                img_size=(*backbone_name_to_params[backbone_param_key]['img_size'], in_channels),
             )
         encoder = map_pretrained_2d_to_pseudo_3d(encoder_2d, encoder_pseudo_3d)
         patch_first_conv(
@@ -400,17 +409,17 @@ def build_segmentation(backbone_name, type_, in_channels=1, decoder_attention_ty
             pretrained=True,
             conv_type=nn.Conv3d,
         )
-        encoder = FeatureExtractorWrapper(encoder, format=backbone_name_to_params[backbone_name]['format'])
+        encoder = FeatureExtractorWrapper(encoder, format=backbone_name_to_params[backbone_param_key]['format'])
         
         model = Unet(
             encoder=encoder,
             encoder_channels=get_feature_channels(
                 encoder, 
-                input_shape=(1, *backbone_name_to_params[backbone_name]['img_size'], in_channels)
+                input_shape=(1, *backbone_name_to_params[backbone_param_key]['img_size'], in_channels)
             ),
-            decoder_channels=backbone_name_to_params[backbone_name]['decoder_channels'],
+            decoder_channels=backbone_name_to_params[backbone_param_key]['decoder_channels'],
             classes=1,
-            upsampling=backbone_name_to_params[backbone_name]['upsampling'],
+            upsampling=backbone_name_to_params[backbone_param_key]['upsampling'],
         )
     elif type_.startswith('2d'):
         encoder = encoder_2d
@@ -427,17 +436,17 @@ def build_segmentation(backbone_name, type_, in_channels=1, decoder_attention_ty
 
         encoder = FeatureExtractorWrapper(
             encoder, 
-            format=backbone_name_to_params[backbone_name]['format']
+            format=backbone_name_to_params[backbone_param_key]['format']
         )
         unet = Unet(
             encoder=encoder,
             encoder_channels=get_feature_channels(
                 encoder, 
-                input_shape=(in_channels, *backbone_name_to_params[backbone_name]['img_size'])
+                input_shape=(in_channels, *backbone_name_to_params[backbone_param_key]['img_size'])
             ),
-            decoder_channels=backbone_name_to_params[backbone_name]['decoder_channels'],
+            decoder_channels=backbone_name_to_params[backbone_param_key]['decoder_channels'],
             classes=1,
-            upsampling=backbone_name_to_params[backbone_name]['upsampling'],
+            upsampling=backbone_name_to_params[backbone_param_key]['upsampling'],
             decoder_attention_type=decoder_attention_type,
         )
         
@@ -462,21 +471,21 @@ def build_segmentation(backbone_name, type_, in_channels=1, decoder_attention_ty
 
         encoder = FeatureExtractorWrapper(
             encoder, 
-            format=backbone_name_to_params[backbone_name]['format']
+            format=backbone_name_to_params[backbone_param_key]['format']
         )
 
         model = UNet3dAcs(
             encoder=encoder,
             encoder_channels=get_feature_channels(
                 encoder,
-                input_shape=(1, *backbone_name_to_params[backbone_name]['img_size'], in_channels)
+                input_shape=(1, *backbone_name_to_params[backbone_param_key]['img_size'], in_channels)
             ),
-            decoder_mid_channels=backbone_name_to_params[backbone_name]['decoder_mid_channels'],
-            decoder_out_channels=backbone_name_to_params[backbone_name]['decoder_out_channels'],
+            decoder_mid_channels=backbone_name_to_params[backbone_param_key]['decoder_mid_channels'],
+            decoder_out_channels=backbone_name_to_params[backbone_param_key]['decoder_out_channels'],
             classes=1,
-            depth=in_channels // backbone_name_to_params[backbone_name]['upsampling'],
+            depth=in_channels // backbone_name_to_params[backbone_param_key]['upsampling'],
             decoder_attention_type=decoder_attention_type,
-            upsampling=backbone_name_to_params[backbone_name]['upsampling'],
+            upsampling=backbone_name_to_params[backbone_param_key]['upsampling'],
         )
     else:
         raise NotImplementedError(f'Unknown type {type_}.')
@@ -639,8 +648,11 @@ class SegmentationModule(BaseModule):
                 add_dataloader_idx=False,
                 batch_size=batch['image'].shape[0],
             )
+        
+        y, y_pred = self.extract_targets_and_probas_for_metric(preds, batch)
+        y_masked = y.flatten()[batch['mask_0'].flatten() == 1]
+        y_pred_masked = y_pred.flatten()[batch['mask_0'].flatten() == 1]
         for metric in self.metrics['val_metrics'].values():
-            y, y_pred = self.extract_targets_and_probas_for_metric(preds, batch)
             if isinstance(metric, PredictionTargetPreviewAgg) and batch['indices'] is not None:
                 metric.update(
                     batch['image'][..., batch['image'].shape[-1] // 2],
@@ -651,7 +663,7 @@ class SegmentationModule(BaseModule):
                     shape_patches=batch['shape_patches'],
                 )
             else:
-                metric.update(y_pred.flatten(), y.flatten())
+                metric.update(y_pred_masked.flatten(), y_masked.flatten())
         return total_loss
 
     def predict_step(self, batch: Tensor, batch_idx: int, dataloader_idx: Optional[int] = None, **kwargs) -> Tensor:
