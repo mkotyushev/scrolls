@@ -578,7 +578,7 @@ class SegmentationModule(BaseModule):
                 'val_metrics': ModuleDict(
                     {
                         'f05': BinaryFBetaScore(beta=0.5),
-                        'preview': PredictionTargetPreviewAgg(preview_downscale=16),
+                        'preview': PredictionTargetPreviewAgg(preview_downscale=32),
                     }
                 ),
             }
