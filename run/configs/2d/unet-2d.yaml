@@ -8,7 +8,8 @@ trainer:
     - class_path: lightning.pytorch.callbacks.LearningRateMonitor
       init_args:
         logging_interval: step
-    - class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    - class_path: src.utils.utils.ModelCheckpointNoSave
+    # - class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
         save_top_k: 1
         monitor: v_f05
@@ -22,7 +23,7 @@ trainer:
   max_epochs: 16
   num_sanity_val_steps: 0
   accumulate_grad_batches: 1
-  reload_dataloaders_every_n_epochs: 1
+  reload_dataloaders_every_n_epochs: 0
   log_every_n_steps: 1
   gradient_clip_val: 1000
   check_val_every_n_epoch: 1
@@ -99,9 +100,9 @@ data:
   class_path: src.data.datamodules.SurfaceVolumeDatamodule
   init_args:
     surface_volume_dirs: 
-      - /workspace/data/fragments_downscaled_2/train/1
-      - /workspace/data/fragments_downscaled_2/train/2
-      - /workspace/data/fragments_downscaled_2/train/3
+      - /workspace/data/fragments/train/1
+      - /workspace/data/fragments/train/2
+      - /workspace/data/fragments/train/3
     surface_volume_dirs_test: null
     val_dir_indices: 2
     crop_size: 256
