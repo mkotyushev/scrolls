@@ -8,7 +8,8 @@ trainer:
     - class_path: lightning.pytorch.callbacks.LearningRateMonitor
       init_args:
         logging_interval: step
-    - class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    - class_path: src.utils.utils.ModelCheckpointNoSave
+    # - class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
         save_top_k: 1
         monitor: v_f05
@@ -19,9 +20,9 @@ trainer:
 
   # limit_train_batches: 10
   # limit_val_batches: 10
-  max_epochs: 100
+  max_epochs: 50
   num_sanity_val_steps: 0
-  accumulate_grad_batches: 1
+  accumulate_grad_batches: 8
   reload_dataloaders_every_n_epochs: 1
   log_every_n_steps: 1
   gradient_clip_val: 1000
@@ -61,9 +62,9 @@ model:
   class_path: src.model.modules.SegmentationModule
   init_args:
     type_: 3d_acs
-    decoder_attention_type: scse
+    decoder_attention_type: null
     in_channels: 32
-    backbone_name: convnext_small.in12k_ft_in1k_384
+    backbone_name: convnextv2_large.fcmae_ft_in22k_in1k_384
     pos_weight: 1.0
     label_smoothing: 0.0
     optimizer_init: 
@@ -99,18 +100,18 @@ data:
   class_path: src.data.datamodules.SurfaceVolumeDatamodule
   init_args:
     surface_volume_dirs: 
-      - /workspace/data/fragments_downscaled_2/train/1
-      - /workspace/data/fragments_downscaled_2/train/2
-      - /workspace/data/fragments_downscaled_2/train/3
+      - /workspace/data/fragments/train/1
+      - /workspace/data/fragments/train/2
+      - /workspace/data/fragments/train/3
     surface_volume_dirs_test: null
     val_dir_indices: 2
-    crop_size: 256
+    crop_size: 768
     crop_size_z: 32
-    img_size: 256
+    img_size: 768
     img_size_z: 32
     resize_xy: crop
     use_imagenet_stats: true
-    batch_size: 16
+    batch_size: 1
     batch_size_full: null
     batch_size_full_apply_epoch: null
     num_workers: 4
