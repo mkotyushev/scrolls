@@ -384,11 +384,14 @@ backbone_name_to_params = {
 def build_segmentation(backbone_name, type_, in_channels=1, decoder_attention_type=None, img_size=256):
     """Build segmentation model."""
     backbone_param_key = backbone_name.split('_')[0]
+    create_model_kwargs = {}
+    if backbone_param_key == 'swinv2':
+        create_model_kwargs['img_size'] = img_size
     encoder_2d = timm.create_model(
         backbone_name, 
         features_only=True,
         pretrained=True,
-        img_size=img_size,
+        **create_model_kwargs,
     )
     if type_ == 'pseudo_3d':
         with patch('timm.models.swin_transformer_v2.SwinTransformerV2', SwinTransformerV2Pseudo3d):
