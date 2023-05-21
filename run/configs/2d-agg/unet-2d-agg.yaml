@@ -125,7 +125,7 @@ data:
     batch_size: null
     batch_size_full: null
     batch_size_full_apply_epoch: 10
-    num_workers: 8
+    num_workers: 4
     pin_memory: false
     prefetch_factor: 2
     persistent_workers: true
