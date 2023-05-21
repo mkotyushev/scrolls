@@ -127,8 +127,20 @@ def get_n_repeats(scroll_masks, crop_size):
     return n_repeats
 
 
-# class RepeatsSampler:
-        
+N_REPEATS_384_WITH_FRAGMENT_2_NO_SCALE = 1330
+def get_n_repeats_hardcoded(crop_size, scale=1.0):
+    """Hardcoded n_repeats based on crop_size=384 and 
+    non-scaled train dataset which includes fragment 2.
+
+    Fragment 2 is significantly larger than others, 
+    so it is used to calculate n_repeats for other fragments.
+
+    If dataset is scaled, n_repeats is scaled accordingly.
+    """	
+    crop_area_ratio = (384 / crop_size) ** 2
+    n_repeats = int(N_REPEATS_384_WITH_FRAGMENT_2_NO_SCALE * crop_area_ratio / (scale ** 2))
+    return n_repeats
+
 
 class SurfaceVolumeDatamodule(LightningDataModule):
     """Base datamodule for surface volume data."""
@@ -169,6 +181,19 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         self.val_transform = None
         self.test_transform = None
 
+        # Train dataset scale is min volume scale for surface_volume_dirs
+        volume_scales = []
+        for root in self.hparams.surface_volume_dirs:
+            if 'fragments_downscaled_' in root:
+                # Extract N from 'blah/blah/fragments_downscaled_N/blah/blah/'
+                volume_scales.append(
+                    float(root.split('fragments_downscaled_')[1].split('/')[0])
+                )
+            else:
+                volume_scales.append(1.0)
+        self.train_dataset_scale = min(volume_scales)
+        logger.info(f'train_dataset_scale: {self.train_dataset_scale}')
+
         # Imagenets mean and std
         self.train_volume_mean = sum((0.485, 0.456, 0.406)) / 3
         self.train_volume_std = sum((0.229, 0.224, 0.225)) / 3
@@ -184,7 +209,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     base_size=self.hparams.crop_size, 
                     base_depth=None,
                     scale=(0.5, 2.0),
-                    ratio=(0.8, 1.25),
+                    ratio=(0.9, 1.1),
                     always_apply=True,
                     crop_mask_index=0,
                 ),
@@ -404,7 +429,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         if self.hparams.resize_xy == 'crop':
             num_samples = \
                 len(self.train_dataset.scroll_masks) * \
-                get_n_repeats(self.train_dataset.scroll_masks, self.hparams.crop_size)
+                get_n_repeats_hardcoded(self.hparams.crop_size, scale=self.train_dataset_scale)
             sampler = RandomSampler(self.train_dataset, replacement=True, num_samples=num_samples)
             shuffle = None
 
