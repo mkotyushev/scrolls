@@ -358,7 +358,6 @@ class BaseModule(LightningModule):
 backbone_name_to_params = {
     'swinv2': {
         'window_size': (8, 8),
-        'img_size': (256, 256),
         # TODO: SWIN v2 has patch size 4, upsampling at 
         # the last step degrades quality
         'upsampling': 4,
@@ -366,7 +365,6 @@ backbone_name_to_params = {
         'format': 'NHWC',
     },
     'convnext': {
-        'img_size': (384, 384),
         'upsampling': 4,
         'decoder_channels': (256, 128, 64),
         'decoder_mid_channels': (256, 128, 64),
@@ -374,7 +372,6 @@ backbone_name_to_params = {
         'format': 'NCHW',
     },
     'convnextv2': {
-        'img_size': (384, 384),
         'upsampling': 4,
         'decoder_channels': (256, 128, 64),
         'decoder_mid_channels': (256, 128, 64),
@@ -384,13 +381,14 @@ backbone_name_to_params = {
 }
 
 
-def build_segmentation(backbone_name, type_, in_channels=1, decoder_attention_type=None):
+def build_segmentation(backbone_name, type_, in_channels=1, decoder_attention_type=None, img_size=256):
     """Build segmentation model."""
     backbone_param_key = backbone_name.split('_')[0]
     encoder_2d = timm.create_model(
         backbone_name, 
         features_only=True,
         pretrained=True,
+        img_size=img_size,
     )
     if type_ == 'pseudo_3d':
         with patch('timm.models.swin_transformer_v2.SwinTransformerV2', SwinTransformerV2Pseudo3d):
@@ -399,7 +397,7 @@ def build_segmentation(backbone_name, type_, in_channels=1, decoder_attention_ty
                 features_only=True,
                 pretrained=False,
                 window_size=(*backbone_name_to_params[backbone_param_key]['window_size'], in_channels // 4),
-                img_size=(*backbone_name_to_params[backbone_param_key]['img_size'], in_channels),
+                img_size=(img_size, img_size, in_channels),
             )
         encoder = map_pretrained_2d_to_pseudo_3d(encoder_2d, encoder_pseudo_3d)
         patch_first_conv(
@@ -415,7 +413,7 @@ def build_segmentation(backbone_name, type_, in_channels=1, decoder_attention_ty
             encoder=encoder,
             encoder_channels=get_feature_channels(
                 encoder, 
-                input_shape=(1, *backbone_name_to_params[backbone_param_key]['img_size'], in_channels)
+                input_shape=(1, img_size, img_size, in_channels)
             ),
             decoder_channels=backbone_name_to_params[backbone_param_key]['decoder_channels'],
             classes=1,
@@ -442,7 +440,7 @@ def build_segmentation(backbone_name, type_, in_channels=1, decoder_attention_ty
             encoder=encoder,
             encoder_channels=get_feature_channels(
                 encoder, 
-                input_shape=(in_channels, *backbone_name_to_params[backbone_param_key]['img_size'])
+                input_shape=(in_channels, img_size, img_size)
             ),
             decoder_channels=backbone_name_to_params[backbone_param_key]['decoder_channels'],
             classes=1,
@@ -478,7 +476,7 @@ def build_segmentation(backbone_name, type_, in_channels=1, decoder_attention_ty
             encoder=encoder,
             encoder_channels=get_feature_channels(
                 encoder,
-                input_shape=(1, *backbone_name_to_params[backbone_param_key]['img_size'], in_channels)
+                input_shape=(1, img_size, img_size, in_channels)
             ),
             decoder_mid_channels=backbone_name_to_params[backbone_param_key]['decoder_mid_channels'],
             decoder_out_channels=backbone_name_to_params[backbone_param_key]['decoder_out_channels'],
@@ -515,6 +513,7 @@ class SegmentationModule(BaseModule):
         n_bootstrap: int = 1000,
         skip_nan: bool = False,
         prog_bar_names: Optional[list] = None,
+        img_size=256,
     ):
         super().__init__(
             optimizer_init=optimizer_init,
@@ -533,6 +532,7 @@ class SegmentationModule(BaseModule):
             type_, 
             in_channels=in_channels,
             decoder_attention_type=decoder_attention_type,
+            img_size=img_size,
         )
 
         if finetuning is not None and finetuning['unfreeze_before_epoch'] == 0:

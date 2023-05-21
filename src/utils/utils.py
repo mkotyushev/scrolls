@@ -25,7 +25,7 @@ class MyLightningCLI(LightningCLI):
         Example:
             parser.link_arguments("data.init_args.img_size", "model.init_args.img_size")
         """
-        return
+        parser.link_arguments("data.init_args.img_size", "model.init_args.img_size")
 
 
 
