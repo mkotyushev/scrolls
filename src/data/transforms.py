@@ -30,7 +30,6 @@ class RotateX(Rotate):
     def apply_to_mask(self, img, angle=0, **params):
         # Resize by H axis on cos angle
         img_new = np.full_like(img, self.mask_value)
-        h_offset = int(img.shape[0] * (1 - np.cos(np.deg2rad(angle))) / 2)
         img_shrinked = cv2.resize(
             img, 
             (0, 0),
@@ -38,7 +37,17 @@ class RotateX(Rotate):
             fy=np.cos(np.deg2rad(angle)),
             interpolation=cv2.INTER_NEAREST,
         )
-        img_new[h_offset:h_offset + img_shrinked.shape[0], :] = img_shrinked
+        
+        h_start = math.floor(img_new.shape[0] * (1 - np.cos(np.deg2rad(angle))) / 2)
+        h_end = h_start + img_shrinked.shape[0]
+
+        assert h_start <= h_end, \
+            f"h_start={h_start} should be less or equal than h_end={h_end}"
+        assert h_start >= 0 and h_end <= img_new.shape[0], \
+            f"h_start={h_start} and h_end={h_end} should be in [0, {img_new.shape[0]}]"
+        
+        img_new[h_start:h_end, :] = img_shrinked
+
         return img_new
 
 
