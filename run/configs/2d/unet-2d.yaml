@@ -61,7 +61,7 @@ model:
   class_path: src.model.modules.SegmentationModule
   init_args:
     type_: 2d
-    decoder_attention_type: scse
+    decoder_attention_type: null
     in_channels: 6
     backbone_name: null
     pos_weight: 1.0
