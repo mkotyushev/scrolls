@@ -181,8 +181,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
             # Crop to crop_size and resize to img_size
             train_resize_transform = [ 
                 RandomCropVolumeInside2dMask(
-                    height=self.hparams.crop_size, 
-                    width=self.hparams.crop_size, 
+                    size=(int(self.hparams.crop_size * 0.5), int(self.hparams.crop_size * 2.0)), 
                     depth=None,
                     always_apply=True,
                     crop_mask_index=0,
