@@ -1,9 +1,10 @@
 import logging
+import math
 import random
 import cv2
 import numpy as np
 import torch
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 from albumentations import Rotate, DualTransform, ImageOnlyTransform, Resize, RandomScale
 from albumentations.augmentations.crops import functional as F_crops
 from albumentations.augmentations.geometric import functional as F_geometric
@@ -42,79 +43,91 @@ class RotateX(Rotate):
 
 
 class RandomCropVolumeInside2dMask:
+    """Crop a random part of the input.
+    """
     def __init__(
         self,
-        size: Tuple[int, int], 
-        depth: Tuple[int, int],
+        base_size: Optional[int] = None,
+        base_depth: Optional[int] = None,
+        scale: Tuple[float, float] = (1.0, 1.0),
+        ratio: Tuple[float, float] = (1.0, 1.0),
+        value: int = 0,
+        mask_value: int = 0,
+        crop_mask_index=0,
         always_apply=True,
         p=1.0,
-        crop_mask_index=0,
     ):
-        if not (size is not None or depth is not None):
+        if not (base_size is not None or base_depth is not None):
             logger.warning(
-                f"Eigher size or depth should be not None. "
-                f"Got size={size}, depth={depth}. "
+                f"Eigher base_size or base_depth should be not None. "
+                f"Got base_size={base_size}, base_depth={base_depth}. "
                 f"No transform will be performed."
             )
-        if size is not None:
-            assert size[0] <= size[1], f"size[0] should be less or equal than size[1]. Got {size}"
-        if depth is not None:
-            assert depth[0] <= depth[1], f"depth[0] should be less or equal than depth[1]. Got {depth}"
+        
+        assert scale[0] > 0 and scale[1] > 0, f"scale should be positive. Got {scale}"
+        assert ratio[0] > 0 and ratio[1] > 0, f"ratio should be positive. Got {ratio}"
+        assert scale[0] <= scale[1], f"scale[0] should be less or equal than scale[1]. Got {scale}"
+        assert ratio[0] <= ratio[1], f"ratio[0] should be less or equal than ratio[1]. Got {ratio}"
 
-        self.size = size
-        self.depth = depth
+        self.base_size = base_size
+        self.base_depth = base_depth
+        self.scale = scale
+        self.ratio = ratio
+        self.value = value
+        self.mask_value = mask_value
+        self.crop_mask_index = crop_mask_index
+
         self.always_apply = always_apply
         self.p = p
-        self.crop_mask_index = crop_mask_index
     
     def __call__(self, *args, force_apply: bool = False, **kwargs) -> Dict[str, np.ndarray]:
         # Toss a coin
         if not force_apply and not self.always_apply and random.random() > self.p:
             return kwargs
         
+        # Get random scale and ratio
+        scale = random.uniform(self.scale[0], self.scale[1])
+        ratio = random.uniform(self.ratio[0], self.ratio[1])
+        
         h_start, h_end = 0, kwargs['image'].shape[0]
         w_start, w_end = 0, kwargs['image'].shape[1]
-        if self.size is not None:
-            # Get random size
-            size = np.random.randint(self.size[0], self.size[1] + 1)
+        if self.base_size is not None:
+            # Get height and width
+            height = int(self.base_size * scale)
+            width = int(self.base_size * scale * ratio)       
 
             # Get crop mask
             crop_mask = kwargs['masks'][self.crop_mask_index]  # (H, W)
 
-            # Crop mask so that it is not on the border with
-            # height // 2, width // 2 offsets
-            # TODO: check off-by-one errors
-            crop_mask = crop_mask[
-                size // 2:-size // 2,
-                size // 2:-size // 2,
-            ]
-
             # Get indices of non-zero elements
+            # TODO: consider morpological erosion to get more "inside" mask
             nonzero_indices = np.nonzero(crop_mask)
 
             # Get random index
             random_index = random.randint(0, nonzero_indices[0].shape[0] - 1)
 
-            # Add size // 2, size // 2 offsets to center index
-            center_index = (
-                nonzero_indices[0][random_index] + size // 2,
-                nonzero_indices[1][random_index] + size // 2,
-            )
-
             # Get crop indices
-            h_start = center_index[0] - size // 2
-            h_end = h_start + size
-            w_start = center_index[1] - size // 2
-            w_end = w_start + size
+            h_start = nonzero_indices[0][random_index] - height // 2
+            h_end = h_start + height
+            w_start = nonzero_indices[1][random_index] - width // 2
+            w_end = w_start + width
+
+            # Clip indices
+            # TODO: consider proportionally change counterpart 
+            # according to selected ratio if clipped
+            h_start = max(h_start, 0)
+            h_end = min(h_end, kwargs['image'].shape[0])
+            w_start = max(w_start, 0)
+            w_end = min(w_end, kwargs['image'].shape[1])
 
         z_start, z_end = 0, kwargs['image'].shape[2]
-        if self.depth is not None:
-            # Get random depth
-            depth = np.random.randint(self.depth[0], self.depth[1] + 1)
+        if self.base_depth is not None:
+            # Get depth
+            depth = int(self.base_depth * scale)  # TODO: consider different scale for depth
 
             # Get random z_start
-            z_start_max = max(kwargs['image'].shape[2] - depth, 0)
-            z_start = np.random.randint(0, z_start_max) if z_start_max > 0 else 0
+            z_start_max = max(kwargs['image'].shape[2] - depth, 1)
+            z_start = np.random.randint(0, z_start_max)
 
             # Get z_end
             z_end = min(z_start + depth, kwargs['image'].shape[2])
