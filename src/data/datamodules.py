@@ -219,31 +219,15 @@ class SurfaceVolumeDatamodule(LightningDataModule):
     def build_transforms(self) -> None:        
         train_pre_resize_transform = []
 
-        # Z is sensitive, so angles are small:
-        # rotation angle of ~ 0.2 degree results in having +- 3 slice deviation 
-        # at the volume XY borders at 768x768.
-        
-        # Deviation is linearly proportional to the image size, 
-        # so could increase rotation limit for smaller images
-        # keeping same slice deviation.
+        # Rotation limits: so as reflection padding
+        # is used, no need to limit rotation
         rotate_limit_degrees_xy = 45
-        rotate_limit_degrees_z = 0.18 * (768 / self.hparams.crop_size)
 
         if self.hparams.resize_xy == 'crop':
-            # Crop to crop_size & crop_size_z:
-            # here we want to guarantee that original images (after scaling) are
-            # always inside after rotations.
-            eps = 0.1
-            rotation_scale = (
-                rotate_limit_to_min_scale(rotate_limit_degrees_xy, proj=False) *
-                rotate_limit_to_min_scale(rotate_limit_degrees_z, proj=True)
-            )
-
-            # TODO: check why 12 & 9 is leading to volume depth cropped to 5
-            # (should be 6)
-            base_size = math.ceil(self.hparams.crop_size * rotation_scale + eps)
-            self.crop_size_z_pre = 18
-            base_depth = 15  # +-3 slice range for random crop
+            # Crop to crop_size & crop_size_z
+            base_size = self.hparams.crop_size
+            self.crop_size_z_pre = self.hparams.crop_size_z * 2
+            base_depth = self.hparams.crop_size_z
 
             logger.info(
                 f'crop_size: {self.hparams.crop_size}, '
@@ -259,7 +243,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     base_depth=base_depth,
                     scale=(0.5, 2.0),
                     ratio=(0.9, 1.1),
-                    scale_z=(0.9, 1.1),
+                    scale_z=(1.0, 2.0),
                     always_apply=True,
                     crop_mask_index=0,
                 )
@@ -282,14 +266,10 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     always_apply=True,
                 ),
                 *train_pre_resize_transform,
-                A.Rotate(p=0.5, limit=rotate_limit_degrees_xy, crop_border=True),
-                RotateZ(p=0.5, limit=rotate_limit_degrees_z, crop_border=True),
-                CenterCropVolume(
-                    height=None, 
-                    width=None,
-                    depth=self.hparams.crop_size_z,
-                    strict=False,
-                    always_apply=True,
+                A.Rotate(
+                    p=0.5, 
+                    limit=rotate_limit_degrees_xy, 
+                    crop_border=False,
                 ),
                 ResizeVolume(
                     height=self.hparams.img_size, 
@@ -330,7 +310,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 CenterCropVolume(
                     height=None, 
                     width=None,
-                    depth=self.hparams.crop_size_z,
+                    depth=self.crop_size_z_pre,
                     strict=True,
                     always_apply=True,
                 ),
