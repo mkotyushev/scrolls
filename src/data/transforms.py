@@ -59,6 +59,7 @@ class RandomCropVolumeInside2dMask:
         base_size: Optional[int] = None,
         base_depth: Optional[int] = None,
         scale: Tuple[float, float] = (1.0, 1.0),
+        scale_z: Tuple[float, float] = (1.0, 1.0),
         ratio: Tuple[float, float] = (1.0, 1.0),
         value: int = 0,
         mask_value: int = 0,
@@ -74,13 +75,16 @@ class RandomCropVolumeInside2dMask:
             )
         
         assert scale[0] > 0 and scale[1] > 0, f"scale should be positive. Got {scale}"
+        assert scale_z[0] > 0 and scale_z[1] > 0, f"scale_z should be positive. Got {scale_z}"
         assert ratio[0] > 0 and ratio[1] > 0, f"ratio should be positive. Got {ratio}"
         assert scale[0] <= scale[1], f"scale[0] should be less or equal than scale[1]. Got {scale}"
+        assert scale_z[0] <= scale_z[1], f"scale_z[0] should be less or equal than scale_z[1]. Got {scale_z}"
         assert ratio[0] <= ratio[1], f"ratio[0] should be less or equal than ratio[1]. Got {ratio}"
 
         self.base_size = base_size
         self.base_depth = base_depth
         self.scale = scale
+        self.scale_z = scale_z
         self.ratio = ratio
         self.value = value
         self.mask_value = mask_value
@@ -107,32 +111,42 @@ class RandomCropVolumeInside2dMask:
 
             # Get crop mask
             crop_mask = kwargs['masks'][self.crop_mask_index]  # (H, W)
+            
+            # Crop the mask to ensure that the crop is inside the mask
+            h_shift, w_shift = height // 2 + 1, width // 2 + 1
+            crop_mask = crop_mask[
+                h_shift:-h_shift,
+                w_shift:-w_shift,
+            ]
 
             # Get indices of non-zero elements
-            # TODO: consider morpological erosion to get more "inside" mask
             nonzero_indices = np.nonzero(crop_mask)
 
             # Get random index
             random_index = random.randint(0, nonzero_indices[0].shape[0] - 1)
+            h_center, w_center = nonzero_indices[0][random_index], nonzero_indices[1][random_index]
+
+            # Shift indices back to compensate crop above
+            h_center += h_shift
+            w_center += w_shift
 
             # Get crop indices
-            h_start = nonzero_indices[0][random_index] - height // 2
+            h_start = h_center - height // 2
             h_end = h_start + height
-            w_start = nonzero_indices[1][random_index] - width // 2
+            w_start = w_center - width // 2
             w_end = w_start + width
 
-            # Clip indices
-            # TODO: consider proportionally change counterpart 
-            # according to selected ratio if clipped
-            h_start = max(h_start, 0)
-            h_end = min(h_end, kwargs['image'].shape[0])
-            w_start = max(w_start, 0)
-            w_end = min(w_end, kwargs['image'].shape[1])
+            # Ensure that crop is inside the image
+            assert h_start >= 0 and h_end <= kwargs['image'].shape[0], \
+                f"h_start={h_start} and h_end={h_end} should be in [0, {kwargs['image'].shape[0]}]"
+            assert w_start >= 0 and w_end <= kwargs['image'].shape[1], \
+                f"w_start={w_start} and w_end={w_end} should be in [0, {kwargs['image'].shape[1]}]"
 
+        scale_z = random.uniform(self.scale_z[0], self.scale_z[1])
         z_start, z_end = 0, kwargs['image'].shape[2]
         if self.base_depth is not None:
             # Get depth
-            depth = int(self.base_depth * scale)  # TODO: consider different scale for depth
+            depth = int(self.base_depth * scale_z)
 
             # Get random z_start
             z_start_max = max(kwargs['image'].shape[2] - depth, 1)
