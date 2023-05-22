@@ -227,7 +227,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         # so could increase rotation limit for smaller images
         # keeping same slice deviation.
         rotate_limit_degrees_xy = 45
-        rotate_limit_degrees_z = 0.2 * (768 / self.hparams.crop_size)
+        rotate_limit_degrees_z = 0.18 * (768 / self.hparams.crop_size)
 
         if self.hparams.resize_xy == 'crop':
             # Crop to crop_size & crop_size_z:
@@ -239,9 +239,11 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 rotate_limit_to_min_scale(rotate_limit_degrees_z, proj=True)
             )
 
+            # TODO: check why 12 & 9 is leading to volume depth cropped to 5
+            # (should be 6)
             base_size = math.ceil(self.hparams.crop_size * rotation_scale + eps)
-            self.crop_size_z_pre = 12
-            base_depth = 9  # +-3 slice range for random crop
+            self.crop_size_z_pre = 18
+            base_depth = 15  # +-3 slice range for random crop
 
             logger.info(
                 f'crop_size: {self.hparams.crop_size}, '
