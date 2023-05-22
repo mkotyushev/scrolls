@@ -32,13 +32,25 @@ class RotateZ(Rotate):
 
         # cv2's y corresponds to H dimention which is shrinked
         # by cos(angle): mask is projected to XZ plane.
-        W = img.shape[1]
+        H, W = img.shape[:2]
         img_out = cv2.resize(
             img, 
             (0, 0),
             fx=1, 
             fy=np.cos(np.deg2rad(angle)),
             interpolation=cv2.INTER_NEAREST,
+        )
+
+        # Pad mask to the same size as image by H dimention.
+        top_pad = (H - img_out.shape[0]) // 2
+        bottom_pad = H - img_out.shape[0] - top_pad
+        img_out = cv2.copyMakeBorder(
+            img_out,
+            top=top_pad,
+            bottom=bottom_pad,
+            left=0,
+            right=0,
+            borderType=self.border_mode,
         )
 
         # Crop mask: if border is cropped, then
