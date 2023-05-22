@@ -20,12 +20,12 @@ trainer:
 
   # limit_train_batches: 10
   # limit_val_batches: 10
-  max_epochs: 50
+  max_epochs: 32
   num_sanity_val_steps: 0
   accumulate_grad_batches: 8
   reload_dataloaders_every_n_epochs: 0
   log_every_n_steps: 1
-  gradient_clip_val: 10
+  gradient_clip_val: 5
   check_val_every_n_epoch: 1
   precision: 16-mixed
 
@@ -65,7 +65,7 @@ model:
     decoder_attention_type: null
     in_channels: 32
     backbone_name: convnextv2_large.fcmae_ft_in22k_in1k_384
-    pos_weight: 1.0
+    pos_weight: 0.5
     label_smoothing: 0.0
     optimizer_init: 
       class_path: torch.optim.AdamW
