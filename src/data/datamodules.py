@@ -219,10 +219,15 @@ class SurfaceVolumeDatamodule(LightningDataModule):
     def build_transforms(self) -> None:        
         train_pre_resize_transform = []
 
-        # Z is sensitive, so angles are small ~ 1.8 degrees for 768x768
-        # and ~ 3.6 degrees for 384x384 if use 32 slices
+        # Z is sensitive, so angles are small:
+        # rotation angle of ~ 0.2 degree results in having +- 3 slice deviation 
+        # at the volume XY borders at 768x768.
+        
+        # Deviation is linearly proportional to the image size, 
+        # so could increase rotation limit for smaller images
+        # keeping same slice deviation.
         rotate_limit_degrees_xy = 45
-        rotate_limit_degrees_z = 1.8 * 768 / self.hparams.crop_size
+        rotate_limit_degrees_z = 0.2 * (768 / self.hparams.crop_size)
 
         if self.hparams.resize_xy == 'crop':
             # Crop to crop_size & crop_size_z:
@@ -235,8 +240,8 @@ class SurfaceVolumeDatamodule(LightningDataModule):
             )
 
             base_size = math.ceil(self.hparams.crop_size * rotation_scale + eps)
-            self.crop_size_z_pre = 35
-            base_depth = 32  # 3 slice range for random crop
+            self.crop_size_z_pre = 12
+            base_depth = 9  # +-3 slice range for random crop
 
             logger.info(
                 f'crop_size: {self.hparams.crop_size}, '
