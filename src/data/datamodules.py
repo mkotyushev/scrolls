@@ -218,8 +218,12 @@ class SurfaceVolumeDatamodule(LightningDataModule):
 
     def build_transforms(self) -> None:        
         train_pre_resize_transform = []
+
+        # Z is sensitive, so angles are small ~ 1.8 degrees for 768x768
+        # and ~ 3.6 degrees for 384x384 if use 32 slices
         rotate_limit_degrees_xy = 45
-        rotate_limit_degrees_z = 15
+        rotate_limit_degrees_z = 1.8 * 768 / self.hparams.crop_size
+
         if self.hparams.resize_xy == 'crop':
             # Crop to crop_size & crop_size_z:
             # here we want to guarantee that original images (after scaling) are
@@ -229,11 +233,10 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 rotate_limit_to_min_scale(rotate_limit_degrees_xy, proj=False) *
                 rotate_limit_to_min_scale(rotate_limit_degrees_z, proj=True)
             )
-            rotation_scale_z = rotate_limit_to_min_scale(rotate_limit_degrees_z, proj=True)
 
             base_size = math.ceil(self.hparams.crop_size * rotation_scale + eps)
-            base_depth = math.ceil(self.hparams.crop_size_z * rotation_scale_z + eps)
-            self.crop_size_z_pre = math.ceil(base_depth + eps)
+            self.crop_size_z_pre = 35
+            base_depth = 32  # 3 slice range for random crop
 
             logger.info(
                 f'crop_size: {self.hparams.crop_size}, '
@@ -274,6 +277,13 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 *train_pre_resize_transform,
                 A.Rotate(p=0.5, limit=rotate_limit_degrees_xy, crop_border=True),
                 RotateZ(p=0.5, limit=rotate_limit_degrees_z, crop_border=True),
+                CenterCropVolume(
+                    height=None, 
+                    width=None,
+                    depth=self.hparams.crop_size_z,
+                    strict=False,
+                    always_apply=True,
+                ),
                 ResizeVolume(
                     height=self.hparams.img_size, 
                     width=self.hparams.img_size,
