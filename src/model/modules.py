@@ -21,7 +21,7 @@ from src.model.swin_transformer_v2_pseudo_3d import (
 )
 from src.model.unet_2d_agg import Unet2dAgg
 from src.model.unet_2d import Unet2d
-from src.model.unet_3d_acs import AcsConvnextWrapper, UNet3dAcs, ACSConverterTimm
+from src.model.unet_3d_acs import ConvNeXtBlockAcs, UNet3dAcs, ACSConverterTimm
 from src.utils.utils import (
     FeatureExtractorWrapper, 
     PredictionTargetPreviewAgg, 
@@ -387,13 +387,14 @@ def build_segmentation(backbone_name, type_, in_channels=1, decoder_attention_ty
     create_model_kwargs = {}
     if backbone_param_key == 'swinv2':
         create_model_kwargs['img_size'] = img_size
-    encoder_2d = timm.create_model(
-        backbone_name, 
-        features_only=True,
-        pretrained=True,
-        **create_model_kwargs,
-    )
+
     if type_ == 'pseudo_3d':
+        encoder_2d = timm.create_model(
+            backbone_name, 
+            features_only=True,
+            pretrained=True,
+            **create_model_kwargs,
+        )
         with patch('timm.models.swin_transformer_v2.SwinTransformerV2', SwinTransformerV2Pseudo3d):
             encoder_pseudo_3d = timm.create_model(
                 backbone_name, 
@@ -423,7 +424,12 @@ def build_segmentation(backbone_name, type_, in_channels=1, decoder_attention_ty
             upsampling=backbone_name_to_params[backbone_param_key]['upsampling'],
         )
     elif type_.startswith('2d'):
-        encoder = encoder_2d
+        encoder = timm.create_model(
+            backbone_name, 
+            features_only=True,
+            pretrained=True,
+            **create_model_kwargs,
+        )
 
         if type_.startswith('2d_agg'):
             in_channels = 1
@@ -457,7 +463,13 @@ def build_segmentation(backbone_name, type_, in_channels=1, decoder_attention_ty
         else:
             model = Unet2d(unet)
     elif type_.startswith('3d_acs'):
-        encoder = encoder_2d
+        with patch('timm.models.convnext.ConvNeXtBlock', ConvNeXtBlockAcs):
+            encoder = timm.create_model(
+                backbone_name, 
+                features_only=True,
+                pretrained=True,
+                **create_model_kwargs,
+            )
         patch_first_conv(
             encoder, 
             new_in_channels=1,

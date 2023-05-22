@@ -1,13 +1,15 @@
-from typing import Optional, Union
+from typing import Callable, Optional, Tuple, Union
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from timm.layers import DropPath, Mlp, GlobalResponseNormMlp, \
+    LayerNorm2d, LayerNorm, create_conv2d, get_act_layer, to_ntuple
 from timm.layers.norm import fast_layer_norm, is_fast_norm, LayerNorm2d
-from timm.models.convnext import ConvNeXtBlock
+from timm.models.convnext import ConvNeXtBlock, Downsample
 from acsconv.utils import _triple_same
-from acsconv.models.acsunet import _DecoderBlock
 from acsconv.operators import ACSConv
 from acsconv.converters import ACSConverter
+from functools import partial
 
 from src.model.smp import ClassificationHead, SegmentationModel, Activation
 
@@ -30,7 +32,7 @@ class AcsConvnextWrapper(nn.Module):
         return xs
 
 
-class LayerNorm3d(nn.LayerNorm):
+class LayerNorm3dAcs(nn.LayerNorm):
     """ LayerNorm for channels of '3D' spatial NCHWD tensors """
     def __init__(self, num_channels, eps=1e-6, affine=True):
         super().__init__(num_channels, eps=eps, elementwise_affine=affine)
@@ -46,22 +48,92 @@ class LayerNorm3d(nn.LayerNorm):
         return x
     
 
-def ConvNeXtBlock_forward(self, x):
-    shortcut = x
-    x = self.conv_dw(x)
-    if self.use_conv_mlp:
-        x = self.norm(x)
-        x = self.mlp(x)
-    else:
-        x = x.permute(0, 2, 3, 4, 1) # (N, C, D, H, W) -> (N, D, H, W, C)
-        x = self.norm(x)
-        x = self.mlp(x)
-        x = x.permute(0, 4, 1, 2, 3) # (N, D, H, W, C) -> (N, C, D, H, W)
-    if self.gamma is not None:
-        x = x.mul(self.gamma.reshape(1, -1, 1, 1, 1))
+class ConvNeXtBlockAcs(nn.Module):
+    """ ConvNeXt Block
+    There are two equivalent implementations:
+      (1) DwConv -> LayerNorm (channels_first) -> 1x1 Conv -> GELU -> 1x1 Conv; all in (N, C, H, W)
+      (2) DwConv -> Permute to (N, H, W, C); LayerNorm (channels_last) -> Linear -> GELU -> Linear; Permute back
 
-    x = self.drop_path(x) + self.shortcut(shortcut)
-    return x
+    Unlike the official impl, this one allows choice of 1 or 2, 1x1 conv can be faster with appropriate
+    choice of LayerNorm impl, however as model size increases the tradeoffs appear to change and nn.Linear
+    is a better choice. This was observed with PyTorch 1.10 on 3090 GPU, it could change over time & w/ different HW.
+    """
+
+    def __init__(
+            self,
+            in_chs: int,
+            out_chs: Optional[int] = None,
+            kernel_size: int = 7,
+            stride: int = 1,
+            dilation: Union[int, Tuple[int, int]] = (1, 1),
+            mlp_ratio: float = 4,
+            conv_mlp: bool = False,
+            conv_bias: bool = True,
+            use_grn: bool = False,
+            ls_init_value: Optional[float] = 1e-6,
+            act_layer: Union[str, Callable] = 'gelu',
+            norm_layer: Optional[Callable] = None,
+            drop_path: float = 0.,
+    ):
+        """
+
+        Args:
+            in_chs: Block input channels.
+            out_chs: Block output channels (same as in_chs if None).
+            kernel_size: Depthwise convolution kernel size.
+            stride: Stride of depthwise convolution.
+            dilation: Tuple specifying input and output dilation of block.
+            mlp_ratio: MLP expansion ratio.
+            conv_mlp: Use 1x1 convolutions for MLP and a NCHW compatible norm layer if True.
+            conv_bias: Apply bias for all convolution (linear) layers.
+            use_grn: Use GlobalResponseNorm in MLP (from ConvNeXt-V2)
+            ls_init_value: Layer-scale init values, layer-scale applied if not None.
+            act_layer: Activation layer.
+            norm_layer: Normalization layer (defaults to LN if not specified).
+            drop_path: Stochastic depth probability.
+        """
+        super().__init__()
+        out_chs = out_chs or in_chs
+        dilation = to_ntuple(2)(dilation)
+        act_layer = get_act_layer(act_layer)
+        if not norm_layer:
+            norm_layer = LayerNorm2d if conv_mlp else LayerNorm
+        mlp_layer = partial(GlobalResponseNormMlp if use_grn else Mlp, use_conv=conv_mlp)
+        self.use_conv_mlp = conv_mlp
+        self.conv_dw = create_conv2d(
+            in_chs,
+            out_chs,
+            kernel_size=kernel_size,
+            stride=stride,
+            dilation=dilation[0],
+            depthwise=True,
+            bias=conv_bias,
+        )
+        self.norm = norm_layer(out_chs)
+        self.mlp = mlp_layer(out_chs, int(mlp_ratio * out_chs), act_layer=act_layer)
+        self.gamma = nn.Parameter(ls_init_value * torch.ones(out_chs)) if ls_init_value is not None else None
+        if in_chs != out_chs or stride != 1 or dilation[0] != dilation[1]:
+            self.shortcut = Downsample(in_chs, out_chs, stride=stride, dilation=dilation[0])
+        else:
+            self.shortcut = nn.Identity()
+        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+
+    def forward(self, x):
+        shortcut = x
+        x = self.conv_dw(x)
+        if self.use_conv_mlp:
+            x = self.norm(x)
+            x = self.mlp(x)
+        else:
+            x = x.permute(0, 2, 3, 4, 1) # (N, C, D, H, W) -> (N, D, H, W, C)
+            x = self.norm(x)
+            x = self.mlp(x)
+            x = x.permute(0, 4, 1, 2, 3) # (N, D, H, W, C) -> (N, C, D, H, W)
+        if self.gamma is not None:
+            x = x.mul(self.gamma.reshape(1, -1, 1, 1, 1))
+
+        x = self.drop_path(x) + self.shortcut(shortcut)
+        return x
 
 
 class ACSConverterTimm(ACSConverter):
@@ -109,10 +181,7 @@ class ACSConverterTimm(ACSConverter):
                     getattr(child, k) 
                     for k in arguments
                 }
-                setattr(module, child_name, LayerNorm3d(**kwargs))
-            elif isinstance(child, ConvNeXtBlock):
-                child.forward = lambda x: ConvNeXtBlock_forward(child, x)
-                self.convert_module(child)
+                setattr(module, child_name, LayerNorm3dAcs(**kwargs))
             elif hasattr(nn, child.__class__.__name__) and \
                 ('pool' in child.__class__.__name__.lower() or 
                 'norm' in child.__class__.__name__.lower()):
