@@ -216,6 +216,8 @@ class CenterCropVolume(DualTransform):
         height (int): height of the crop.
         width (int): width of the crop.
         depth (int): depth of the crop.
+        strict (bool): if True, will fail if image size is less than crop size by any dimention, 
+            otherwise will crop as much as possible. Default: True.
         p (float): probability of applying the transform. Default: 1.
 
     Targets:
@@ -230,7 +232,7 @@ class CenterCropVolume(DualTransform):
         float32 -> uint8 -> float32 that causes worse performance.
     """
 
-    def __init__(self, height, width, depth, always_apply=False, p=1.0):
+    def __init__(self, height, width, depth, strict=True, always_apply=False, p=1.0):
         super().__init__(always_apply, p)
         if not ((height is not None and width is not None) or depth is not None):
             logger.warning(
@@ -241,16 +243,36 @@ class CenterCropVolume(DualTransform):
         self.height = height
         self.width = width
         self.depth = depth
+        self.strict = strict
 
     def apply(self, img, is_mask=False, **params):
         if self.height is not None and self.width is not None:
-            img = F_crops.center_crop(img, self.height, self.width)
+            height, width = img.shape[0], img.shape[1]
+            if not self.strict:
+                if height < self.height:
+                    logger.warning(
+                        f"Height of the image is {height} but height of the crop is {self.height}. "
+                        f"All the height of the image will be used."
+                    )
+                if width < self.width:
+                    logger.warning(
+                        f"Width of the image is {width} but width of the crop is {self.width}. "
+                        f"All the width of the image will be used."
+                    )
+                height, width = \
+                    min(img.shape[0], self.height), \
+                    min(img.shape[1], self.width)
+            img = F_crops.center_crop(img, height, width)
         if not is_mask and self.depth is not None:
             if img.shape[2] < self.depth:
                 logger.warning(
                     f"Depth of the image is {img.shape[2]} but depth of the crop is {self.depth}. "
                     f"All the depth of the image will be used."
                 )
+
+            if self.strict:
+                assert img.shape[2] >= self.depth, \
+                    f"Depth of the image is {img.shape[2]} but depth of the crop is {self.depth}. " \
 
             z_start = max((img.shape[2] - self.depth) // 2, 0)
             z_end = min(z_start + self.depth, img.shape[2])

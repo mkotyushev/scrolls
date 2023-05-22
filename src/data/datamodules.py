@@ -186,6 +186,8 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         self.val_transform = None
         self.test_transform = None
 
+        self.crop_size_z_pre = self.hparams.crop_size_z
+
         # Train dataset scale is min volume scale for surface_volume_dirs
         volume_scales = []
         for root in self.hparams.surface_volume_dirs:
@@ -205,46 +207,36 @@ class SurfaceVolumeDatamodule(LightningDataModule):
 
         self.collate_fn = surface_volume_collate_fn
 
-    def build_transforms(self) -> None:
-        train_resize_transform, val_resize_transform = [], []
+    def build_transforms(self) -> None:        
+        train_pre_resize_transform = []
         if self.hparams.resize_xy == 'crop':
-            # Crop to crop_size and resize to img_size
-            train_resize_transform = [ 
+            # Crop to crop_size & crop_size_z
+
+            # Here we want to guarantee that crop_size and crop_size_z are always inside
+            eps = 0.1
+            scale_min = 0.5
+            scale_z_min = 0.9
+            scale_z_max = 1.1
+            ratio_min = 0.9
+
+            base_size = math.ceil(self.hparams.crop_size / scale_min / ratio_min + eps)
+            base_depth = math.ceil(self.hparams.crop_size_z / scale_z_min + eps)
+            self.crop_size_z_pre = math.ceil(base_depth * scale_z_max)
+
+            train_pre_resize_transform = [ 
                 RandomCropVolumeInside2dMask(
-                    base_size=self.hparams.crop_size, 
-                    base_depth=None,
-                    scale=(0.5, 2.0),
-                    ratio=(0.9, 1.1),
+                    base_size=base_size, 
+                    base_depth=base_depth,
+                    scale=(scale_min, 2.0),
+                    ratio=(ratio_min, 1.1),
+                    scale_z=(scale_z_min, scale_z_max),
                     always_apply=True,
                     crop_mask_index=0,
-                ),
-                ResizeVolume(
-                    height=self.hparams.img_size, 
-                    width=self.hparams.img_size,
-                    depth=self.hparams.img_size_z,
-                    always_apply=True,
-                )
-            ]
-            # Resize anyway: crop is done in dataset
-            # for that case
-            val_resize_transform = [
-                ResizeVolume(
-                    height=self.hparams.img_size, 
-                    width=self.hparams.img_size, 
-                    depth=self.hparams.img_size_z,
-                    always_apply=True,
                 )
             ]
         elif self.hparams.resize_xy == 'resize':
-            # Simply resize to img_size
-            train_resize_transform = val_resize_transform = [
-                ResizeVolume(
-                    height=self.hparams.img_size, 
-                    width=self.hparams.img_size, 
-                    depth=self.hparams.img_size_z,
-                    always_apply=True,
-                )
-            ]
+            # Simply resize to img_size later
+            train_pre_resize_transform = []
         elif self.hparams.resize_xy == 'none':  # memory hungry
             pass
         else:
@@ -255,16 +247,29 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 CenterCropVolume(
                     height=None, 
                     width=None,
-                    depth=self.hparams.crop_size_z,
+                    depth=self.crop_size_z_pre,
+                    strict=True,
                     always_apply=True,
                 ),
-                *train_resize_transform,
-                ToWritable(),
-                RotateX(p=0.5, limit=1, value=0, mask_value=0),
+                *train_pre_resize_transform,
+                RotateX(p=0.5, limit=5, value=0, mask_value=0),
+                A.ShiftScaleRotate(p=0.75),
+                CenterCropVolume(
+                    height=self.hparams.crop_size, 
+                    width=self.hparams.crop_size,
+                    depth=self.hparams.crop_size_z,
+                    strict=False,
+                    always_apply=True,
+                ),
+                ResizeVolume(
+                    height=self.hparams.img_size, 
+                    width=self.hparams.img_size,
+                    depth=self.hparams.img_size_z,
+                    always_apply=True,
+                ),
                 A.HorizontalFlip(p=0.5),
                 A.VerticalFlip(p=0.5),
                 A.RandomBrightnessContrast(p=0.5, brightness_limit=0.1, contrast_limit=0.1),
-                A.ShiftScaleRotate(p=0.75),
                 A.OneOf(
                     [
                         A.GaussNoise(var_limit=[10, 50]),
@@ -296,10 +301,15 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     height=None, 
                     width=None,
                     depth=self.hparams.crop_size_z,
+                    strict=True,
                     always_apply=True,
                 ),
-                *val_resize_transform,
-                ToWritable(),
+                ResizeVolume(
+                    height=self.hparams.img_size, 
+                    width=self.hparams.img_size,
+                    depth=self.hparams.img_size_z,
+                    always_apply=True,
+                ),
                 A.Normalize(
                     max_pixel_value=MAX_PIXEL_VALUE,
                     mean=self.train_volume_mean,
@@ -328,7 +338,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 volumes, scroll_masks, ir_images, ink_masks = \
                     read_data(
                         train_surface_volume_dirs, 
-                        center_crop_z=self.hparams.crop_size_z
+                        center_crop_z=self.crop_size_z_pre
                     )
                 
                 # Update mean and std
@@ -355,7 +365,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 volumes, scroll_masks, ir_images, ink_masks = \
                     read_data(
                         val_surface_volume_dirs, 
-                        center_crop_z=self.hparams.crop_size_z
+                        center_crop_z=self.crop_size_z_pre
                     )
                 
                 # Controls whether val dataset will be cropped to patches (crop_size)
@@ -378,7 +388,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 volumes, scroll_masks, ir_images, ink_masks = \
                     read_data(
                         self.hparams.surface_volume_dirs, 
-                        center_crop_z=self.hparams.crop_size_z
+                        center_crop_z=self.crop_size_z_pre
                     )
                 
                 # Update mean and std
@@ -403,7 +413,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
             volumes, scroll_masks, ir_images, ink_masks = \
                 read_data(
                     self.hparams.surface_volume_dirs_test, 
-                    center_crop_z=self.hparams.crop_size_z
+                    center_crop_z=self.crop_size_z_pre
                 )
             self.test_dataset = InMemorySurfaceVolumeDataset(
                 volumes=volumes, 
