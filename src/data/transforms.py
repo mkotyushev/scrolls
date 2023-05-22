@@ -4,7 +4,7 @@ import random
 import cv2
 import numpy as np
 import torch
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 from albumentations import Rotate, DualTransform, ImageOnlyTransform, Resize, RandomScale
 from albumentations.augmentations.crops import functional as F_crops
 from albumentations.augmentations.geometric import functional as F_geometric
@@ -13,43 +13,45 @@ from albumentations.augmentations.geometric import functional as F_geometric
 logger = logging.getLogger(__name__)
 
 
-class RotateX(Rotate):
-    """Rotate along X axis on randomly selected angle."""
-    def apply(self, img: np.ndarray, **params) -> np.ndarray:
+class RotateZ(Rotate):
+    """Rotate around X axis on randomly selected angle."""
+    def __call__(self, *args, force_apply: bool = False, **kwargs) -> Dict[str, Any]:
         # (H, W, D) -> (D, H, W)
-        img = np.transpose(img, (2, 0, 1))
-        
+        kwargs['image'] = np.transpose(kwargs['image'], (2, 0, 1))
+
         # Rotate as usual image
-        img = super().apply(img, **params)
+        kwargs = super().__call__(*args, force_apply=force_apply, **kwargs)
 
         # (D, H, W) -> (H, W, D)
-        img = np.transpose(img, (1, 2, 0))
+        kwargs['image'] = np.transpose(kwargs['image'], (1, 2, 0))
 
-        return img
-    
-    def apply_to_mask(self, img, angle=0, **params):
-        # Resize by H axis on cos angle
-        img_new = np.full_like(img, self.mask_value)
-        img_shrinked = cv2.resize(
+        return kwargs
+
+    def apply_to_mask(self, img, angle=0, x_min=None, x_max=None, y_min=None, y_max=None, **params):
+        # Project mask to XZ plane.
+
+        # cv2's y corresponds to H dimention which is shrinked
+        # by cos(angle): mask is projected to XZ plane.
+        W = img.shape[1]
+        img_out = cv2.resize(
             img, 
             (0, 0),
             fx=1, 
             fy=np.cos(np.deg2rad(angle)),
             interpolation=cv2.INTER_NEAREST,
         )
-        
-        h_start = math.floor(img_new.shape[0] * (1 - np.cos(np.deg2rad(angle))) / 2)
-        h_end = h_start + img_shrinked.shape[0]
 
-        assert h_start <= h_end, \
-            f"h_start={h_start} should be less or equal than h_end={h_end}"
-        assert h_start >= 0 and h_end <= img_new.shape[0], \
-            f"h_start={h_start} and h_end={h_end} should be in [0, {img_new.shape[0]}]"
-        
-        img_new[h_start:h_end, :] = img_shrinked
+        # Crop mask: if border is cropped, then
+        # mask should not only be projected to XZ plane,
+        # but also cropped to the same size as image by H dimention.
 
-        return img_new
+        # Here only H changes and H corresponds
+        # to y here and x in image case because of transpose
+        # (see __call__ method).
+        if self.crop_border:
+            img_out = F_crops.crop(img_out, x_min=0, y_min=x_min, x_max=W, y_max=x_max)
 
+        return img_out
 
 class RandomCropVolumeInside2dMask:
     """Crop a random part of the input.

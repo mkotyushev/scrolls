@@ -17,7 +17,7 @@ from src.data.transforms import (
     CenterCropVolume, 
     RandomScaleResize,
     ResizeVolume, 
-    RotateX, 
+    RotateZ, 
     ToCHWD, 
     ToWritable
 )
@@ -147,6 +147,15 @@ def get_n_repeats_hardcoded(crop_size, scale=1.0):
     return n_repeats
 
 
+def rotate_limit_to_min_scale(rotate_limit_deg, proj=True):
+    rotate_limit_rad = np.deg2rad(rotate_limit_deg)
+    if proj:
+        scale = np.sqrt(1 / (1 - np.sin(2 * rotate_limit_rad)))
+    else:
+        scale = np.cos(rotate_limit_rad) + np.sin(rotate_limit_rad)
+    return scale
+
+
 class SurfaceVolumeDatamodule(LightningDataModule):
     """Base datamodule for surface volume data."""
     def __init__(
@@ -209,27 +218,38 @@ class SurfaceVolumeDatamodule(LightningDataModule):
 
     def build_transforms(self) -> None:        
         train_pre_resize_transform = []
+        rotate_limit_degrees_xy = 45
+        rotate_limit_degrees_z = 15
         if self.hparams.resize_xy == 'crop':
-            # Crop to crop_size & crop_size_z
-
-            # Here we want to guarantee that crop_size and crop_size_z are always inside
+            # Crop to crop_size & crop_size_z:
+            # here we want to guarantee that original images (after scaling) are
+            # always inside after rotations.
             eps = 0.1
-            scale_min = 0.5
-            scale_z_min = 0.9
-            scale_z_max = 1.1
-            ratio_min = 0.9
+            rotation_scale = (
+                rotate_limit_to_min_scale(rotate_limit_degrees_xy, proj=False) *
+                rotate_limit_to_min_scale(rotate_limit_degrees_z, proj=True)
+            )
+            rotation_scale_z = rotate_limit_to_min_scale(rotate_limit_degrees_z, proj=True)
 
-            base_size = math.ceil(self.hparams.crop_size / scale_min / ratio_min + eps)
-            base_depth = math.ceil(self.hparams.crop_size_z / scale_z_min + eps)
-            self.crop_size_z_pre = math.ceil(base_depth * scale_z_max)
+            base_size = math.ceil(self.hparams.crop_size * rotation_scale + eps)
+            base_depth = math.ceil(self.hparams.crop_size_z * rotation_scale_z + eps)
+            self.crop_size_z_pre = math.ceil(base_depth + eps)
+
+            logger.info(
+                f'crop_size: {self.hparams.crop_size}, '
+                f'base_size: {base_size}, '
+                f'crop_size_z: {self.hparams.crop_size_z}, '
+                f'base_depth: {base_depth}, '
+                f'crop_size_z_pre: {self.crop_size_z_pre}'
+            )
 
             train_pre_resize_transform = [ 
                 RandomCropVolumeInside2dMask(
                     base_size=base_size, 
                     base_depth=base_depth,
-                    scale=(scale_min, 2.0),
-                    ratio=(ratio_min, 1.1),
-                    scale_z=(scale_z_min, scale_z_max),
+                    scale=(0.5, 2.0),
+                    ratio=(0.9, 1.1),
+                    scale_z=(0.9, 1.1),
                     always_apply=True,
                     crop_mask_index=0,
                 )
@@ -252,15 +272,8 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     always_apply=True,
                 ),
                 *train_pre_resize_transform,
-                RotateX(p=0.5, limit=5, value=0, mask_value=0),
-                A.ShiftScaleRotate(p=0.75),
-                CenterCropVolume(
-                    height=self.hparams.crop_size, 
-                    width=self.hparams.crop_size,
-                    depth=self.hparams.crop_size_z,
-                    strict=False,
-                    always_apply=True,
-                ),
+                A.Rotate(p=0.5, limit=rotate_limit_degrees_xy, crop_border=True),
+                RotateZ(p=0.5, limit=rotate_limit_degrees_z, crop_border=True),
                 ResizeVolume(
                     height=self.hparams.img_size, 
                     width=self.hparams.img_size,
