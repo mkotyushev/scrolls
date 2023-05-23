@@ -459,7 +459,6 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 crop_size=self.hparams.crop_size,
             )
             sampler = WeightedRandomSampler(
-                self.train_dataset,
                 weights=weights, 
                 replacement=True, 
                 num_samples=num_samples,
