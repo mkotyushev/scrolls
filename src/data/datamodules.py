@@ -4,7 +4,7 @@ import cv2
 import albumentations as A
 import numpy as np
 import torch.multiprocessing as mp
-from torch.utils.data.sampler import RandomSampler
+from torch.utils.data.sampler import WeightedRandomSampler
 from pathlib import Path
 from typing import List, Optional
 from lightning import LightningDataModule
@@ -116,35 +116,25 @@ def calc_mean_std(volumes, scroll_masks):
     return mean, std
 
 
-def get_n_repeats(scroll_masks, crop_size):
+def get_num_samples_and_weights(scroll_masks, crop_size):
     assert all(
         [
             scroll_mask.min() == 0 and scroll_mask.max() == 1
             for scroll_mask in scroll_masks
         ]
     )
-    n_repeats = max(
+    areas = [
+        scroll_mask.sum()
+        for scroll_mask in scroll_masks
+    ]
+    num_samples = sum(
         [
-            math.ceil(scroll_mask.sum() / (crop_size ** 2))
-            for scroll_mask in scroll_masks
+            math.ceil(area / (crop_size ** 2))
+            for area in areas
         ]
     )
-    return n_repeats
-
-
-N_REPEATS_384_WITH_FRAGMENT_2_NO_SCALE = 665
-def get_n_repeats_hardcoded(crop_size, scale=1.0):
-    """Hardcoded n_repeats based on crop_size=384 and 
-    non-scaled train dataset which includes fragment 2.
-
-    Fragment 2 is significantly larger than others, 
-    so it is used to calculate n_repeats for other fragments.
-
-    If dataset is scaled, n_repeats is scaled accordingly.
-    """	
-    crop_area_ratio = (384 / crop_size) ** 2
-    n_repeats = int(N_REPEATS_384_WITH_FRAGMENT_2_NO_SCALE * crop_area_ratio / (scale ** 2))
-    return n_repeats
+    weights = np.array(areas) / sum(areas)
+    return num_samples, weights
 
 
 def rotate_limit_to_min_scale(rotate_limit_deg, proj=True):
@@ -464,14 +454,20 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         # but oversampling volumes (in patches terms) with smaller area.
         sampler, shuffle = None, True
         if self.hparams.resize_xy == 'crop':
-            num_samples = \
-                len(self.train_dataset.scroll_masks) * \
-                get_n_repeats_hardcoded(self.hparams.crop_size, scale=self.train_dataset_scale)
-            sampler = RandomSampler(self.train_dataset, replacement=True, num_samples=num_samples)
+            num_samples, weights = get_num_samples_and_weights(
+                scroll_masks=self.train_dataset.scroll_masks,
+                crop_size=self.hparams.crop_size,
+            )
+            sampler = WeightedRandomSampler(
+                self.train_dataset,
+                weights=weights, 
+                replacement=True, 
+                num_samples=num_samples,
+            )
             shuffle = None
 
             if self.trainer.current_epoch == 0:
-                logger.info(f'num_samples: {num_samples}')
+                logger.info(f'num_samples: {num_samples}, weights: {weights}')
         
         return DataLoader(
             dataset=self.train_dataset, 
