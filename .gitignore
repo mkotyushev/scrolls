@@ -6,3 +6,4 @@ pipe/
 scrolls/
 *.png
 *.log
+weights/
