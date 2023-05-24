@@ -14,6 +14,7 @@ from timm.layers.format import nhwc_to, Format
 from timm.models import FeatureListNet
 from patchify import unpatchify
 from torchvision.utils import make_grid
+from scipy import interpolate, optimize
 
 from src.model.unet_3d_acs import AcsConvnextWrapper
 
@@ -352,3 +353,131 @@ def convert_to_grayscale(model, backbone_name):
         raise ValueError(f'backbone {backbone_name} not supported')
 
     return model
+
+
+def calculate_statistics(volume, scroll_mask, ink_mask, mode, normalize):
+    assert mode in ['volume', 'volume_mean_per_z']
+    assert normalize in ['minmax', 'meanstd', 'quantile']
+
+    H, W, D = volume.shape
+    
+    # Get only scroll area
+    scroll_mask_flattened_xy = (scroll_mask > 0).flatten()
+    ink_mask_flattened_xy = (ink_mask > 0).flatten()
+    volume_flattened_xy = volume.reshape(H * W, D)
+    volume_flattened_xy_scroll = volume_flattened_xy[
+        scroll_mask_flattened_xy & (~ink_mask_flattened_xy)
+    ].astype(float)
+
+    # On which array to calculate statistics
+    volume_mean_per_z = volume_flattened_xy_scroll.mean(0)
+    if mode == 'volume':
+        arr = volume_flattened_xy_scroll
+    elif mode == 'volume_mean_per_z':
+        arr = volume_mean_per_z
+
+    # Calculate statistics
+    if normalize == 'minmax':
+        subtract = arr.min()
+        divide = arr.max() - subtract
+    elif normalize == 'meanstd':
+        subtract = arr.mean()
+        divide = arr.std()
+    elif normalize == 'quantile':
+        subtract = np.quantile(arr, 0.05)
+        divide = np.quantile(arr, 0.95) - subtract
+
+    return subtract, divide
+
+
+def normalize_volume(volume, scroll_mask, ink_mask, mode='volume_mean_per_z', normalize='quantile', precomputed=None):
+    assert mode in ['volume', 'volume_mean_per_z']
+    assert normalize in ['minmax', 'meanstd', 'quantile']
+
+    # Calculate statistics
+    if precomputed is not None:
+        subtract, divide = precomputed
+    else:
+        subtract, divide = calculate_statistics(volume, scroll_mask, ink_mask, mode, normalize)
+
+    # Normalize
+    volume = (volume - subtract) / divide
+
+    return volume
+
+
+def get_z_volume_mean_per_z(volume, scroll_mask, ink_mask):
+    z = np.arange(volume.shape[2])
+    H, W, D = volume.shape
+    scroll_mask_flattened_xy = (scroll_mask > 0).flatten()
+    ink_mask_flattened_xy = (ink_mask > 0).flatten()
+    volume_flattened_xy = volume.reshape(H * W, D)
+    volume_mean_per_z = volume_flattened_xy[
+        scroll_mask_flattened_xy & (~ink_mask_flattened_xy)
+    ].mean(0)
+
+    return z, volume_mean_per_z
+
+
+def fit_x_shift_scale(x, y, x_target, y_target):
+    """Fit x_shift and x_scale so that y_target
+    is close to y(x_target) in the least square sense.
+
+    Use scipy.interpolate.interp1d to get y(x_target) from y, x * x_scale + x_shift 
+    and scipy.optimize.least_squares to find x_shift and x_scale.
+    """
+    def fun(p):
+        x_shift, x_scale = p
+        x_scaled_shifted = x * x_scale + x_shift
+        f = interpolate.interp1d(x_scaled_shifted, y, bounds_error=False, fill_value='extrapolate')
+        return f(x_target) - y_target
+    x_shift, x_scale = optimize.least_squares(
+        fun=fun, 
+        x0=[0, 1],
+        bounds=([-30, 0.1], [30, 10]),
+    ).x
+    return x_shift, x_scale
+
+
+# https://stackoverflow.com/questions/37662180/interpolate-missing-values-2d-python
+def interpolate_masked_pixels(
+        image: np.ndarray,
+        mask: np.ndarray,
+        method: str = 'nearest',
+        fill_value: int = 0
+):
+    """
+    :param image: a 2D image
+    :param mask: a 2D boolean image, True indicates missing values
+    :param method: interpolation method, one of
+        'nearest', 'linear', 'cubic'.
+    :param fill_value: which value to use for filling up data outside the
+        convex hull of known pixel values.
+        Default is 0, Has no effect for 'nearest'.
+    :return: the image with missing values interpolated
+    """
+    h, w = image.shape[:2]
+    xx, yy = np.meshgrid(np.arange(w), np.arange(h))
+
+    known_x = xx[~mask]
+    known_y = yy[~mask]
+    known_v = image[~mask]
+    missing_x = xx[mask]
+    missing_y = yy[mask]
+
+    interp_values = interpolate.griddata(
+        (known_x, known_y), known_v, (missing_x, missing_y),
+        method=method, fill_value=fill_value
+    )
+
+    interp_image = image.copy()
+    interp_image[missing_y, missing_x] = interp_values
+
+    return interp_image
+
+
+def build_nan_or_outliers_mask(arr):
+    is_nan = np.isnan(arr)
+    is_outlier = (arr < np.quantile(arr[~is_nan], 0.05)) | (arr > np.quantile(arr[~is_nan], 0.95))
+
+    return is_nan, is_outlier

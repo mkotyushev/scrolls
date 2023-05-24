@@ -11,7 +11,7 @@ from lightning import LightningDataModule
 from torch.utils.data import DataLoader
 from albumentations.pytorch import ToTensorV2
 
-from src.data.datasets import InMemorySurfaceVolumeDataset
+from src.data.datasets import InMemorySurfaceVolumeDataset, build_z_shift_scale_maps
 from src.data.transforms import (
     RandomCropVolumeInside2dMask, 
     CenterCropVolume, 
@@ -21,7 +21,7 @@ from src.data.transforms import (
     ToCHWD, 
     ToWritable
 )
-from src.utils.utils import surface_volume_collate_fn
+from src.utils.utils import calculate_statistics, surface_volume_collate_fn
 
 
 logger = logging.getLogger(__name__)
@@ -93,9 +93,28 @@ def read_data(surface_volume_dirs, center_crop_z=None):
     if len(ink_masks) == 0:
         ink_masks = None
 
+    # Calculate statistics
+    subtracts, divides = [], []
+    for volume, scroll_mask, ink_mask in zip(volumes, scroll_masks, ink_masks):
+        subtract, divide = calculate_statistics(
+            volume, 
+            scroll_mask, 
+            ink_mask, 
+            mode='volume_mean_per_z', 
+            normalize='minmax'
+        )
+        subtracts.append(subtract)
+        divides.append(divide)
+
     logger.info(f'Loaded {len(volumes)} volumes from {surface_volume_dirs} dirs')
 
-    return volumes, scroll_masks, ir_images, ink_masks
+    return \
+        volumes, \
+        scroll_masks, \
+        ir_images, \
+        ink_masks, \
+        subtracts, \
+        divides
 
 
 def calc_mean_std(volumes, scroll_masks):
@@ -335,10 +354,16 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     d for i, d in enumerate(self.hparams.surface_volume_dirs)
                     if i not in self.hparams.val_dir_indices
                 ]
-                volumes, scroll_masks, ir_images, ink_masks = \
+                
+                volumes, \
+                scroll_masks, \
+                ir_images, \
+                ink_masks, \
+                subtracts, \
+                divides = \
                     read_data(
                         train_surface_volume_dirs, 
-                        center_crop_z=self.crop_size_z_pre
+                        center_crop_z=None,
                     )
                 
                 # Update mean and std
@@ -356,16 +381,24 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     # Patches are generated in dataloader randomly 
                     # or whole volume is provided
                     patch_size=None,
+                    subtracts=subtracts,
+                    divides=divides,
                 )
 
                 val_surface_volume_dirs = [
                     d for i, d in enumerate(self.hparams.surface_volume_dirs)
                     if i in self.hparams.val_dir_indices
                 ]
-                volumes, scroll_masks, ir_images, ink_masks = \
+
+                volumes, \
+                scroll_masks, \
+                ir_images, \
+                ink_masks, \
+                subtracts, \
+                divides = \
                     read_data(
                         val_surface_volume_dirs, 
-                        center_crop_z=self.crop_size_z_pre
+                        center_crop_z=None,
                     )
                 
                 # Controls whether val dataset will be cropped to patches (crop_size)
@@ -383,12 +416,19 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     ink_masks=ink_masks,
                     transform=self.val_transform,
                     patch_size=val_patch_size,
+                    subtracts=subtracts,
+                    divides=divides,
                 )
             else:
-                volumes, scroll_masks, ir_images, ink_masks = \
+                volumes, \
+                scroll_masks, \
+                ir_images, \
+                ink_masks, \
+                subtracts, \
+                divides = \
                     read_data(
                         self.hparams.surface_volume_dirs, 
-                        center_crop_z=self.crop_size_z_pre
+                        center_crop_z=None,
                     )
                 
                 # Update mean and std
@@ -404,16 +444,23 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     ink_masks=ink_masks,
                     transform=self.train_transform,
                     patch_size=None,  # patches are generated in dataloader randomly
+                    subtracts=subtracts,
+                    divides=divides,
                 )
                 self.val_dataset = None
         if (
             self.test_dataset is None and 
             self.hparams.surface_volume_dirs_test is not None
         ):
-            volumes, scroll_masks, ir_images, ink_masks = \
+            volumes, \
+            scroll_masks, \
+            ir_images, \
+            ink_masks, \
+            subtracts, \
+            divides = \
                 read_data(
                     self.hparams.surface_volume_dirs_test, 
-                    center_crop_z=self.crop_size_z_pre
+                    center_crop_z=None,
                 )
             self.test_dataset = InMemorySurfaceVolumeDataset(
                 volumes=volumes, 
@@ -424,6 +471,8 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 transform=self.test_transform,
                 patch_size=self.crop_size,  # patch without overlap
                 n_repeat=1,  # no repeats for test
+                subtracts=subtracts,
+                divides=divides,
             )
         
         # To rebuild normalization
