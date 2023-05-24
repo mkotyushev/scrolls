@@ -25,6 +25,8 @@ args = parser.parse_args()
 
 # Copy all files (except .tif) to output directory keeping the same structure
 for path in args.input_dir.glob('**/*'):
+    if path.is_dir():
+        continue
     if path.suffix != '.tif':
         path_out = args.output_dir / path.relative_to(args.input_dir)
         logger.info(f'Copying {path} to {path_out}')
