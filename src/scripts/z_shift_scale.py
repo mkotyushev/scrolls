@@ -56,10 +56,19 @@ for fragment_id in range(len(volumes)):
         divides=[divides[fragment_id]],
     )
 
+    def z_shift_scale_map(x):
+        shift, scale = z_shifts[0][x[0], x[1]], z_scales[0][x[0], x[1]]       
+        z = (x[2] - shift) / scale  # assuming non-zero scale
+        return (
+            x[0], 
+            x[1], 
+            z
+        )
+
     # Apply z shift and scale maps
     volume_transformed = geometric_transform(
         volumes[fragment_id],
-        lambda x: (x[0], x[1], x[2] * z_scales[0][x[0], x[1]] + z_shifts[0][x[0], x[1]]),
+        z_shift_scale_map,
         order=1,
     )
 
