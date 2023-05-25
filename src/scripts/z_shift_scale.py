@@ -76,6 +76,6 @@ for fragment_id in range(len(volumes)):
         
         path_out.parent.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(
-            path_out,
+            str(path_out),
             volume_transformed[:, :, z],
         )
