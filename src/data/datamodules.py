@@ -11,15 +11,13 @@ from lightning import LightningDataModule
 from torch.utils.data import DataLoader
 from albumentations.pytorch import ToTensorV2
 
-from src.data.datasets import InMemorySurfaceVolumeDataset, build_z_shift_scale_maps
+from src.data.datasets import InMemorySurfaceVolumeDataset
 from src.data.transforms import (
     RandomCropVolumeInside2dMask, 
     CenterCropVolume, 
-    RandomScaleResize,
     ResizeVolume, 
-    RotateZ, 
+    SubtractDivide, 
     ToCHWD, 
-    ToWritable
 )
 from src.utils.utils import calculate_statistics, surface_volume_collate_fn
 
@@ -302,10 +300,12 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     max_height=int(self.hparams.img_size * 0.3), 
                     mask_fill_value=0, p=0.5
                 ),
+                SubtractDivide(p=1.0, always_apply=True),
                 A.Normalize(
-                    max_pixel_value=MAX_PIXEL_VALUE,
-                    mean=self.train_volume_mean,
-                    std=self.train_volume_std,
+                    mean=0.5,
+                    std=0.5,
+                    max_pixel_value=1.0,
+                    p=1.0,
                     always_apply=True,
                 ),
                 ToTensorV2(),
@@ -327,10 +327,12 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     depth=self.hparams.img_size_z,
                     always_apply=True,
                 ),
+                SubtractDivide(p=1.0, always_apply=True),
                 A.Normalize(
-                    max_pixel_value=MAX_PIXEL_VALUE,
-                    mean=self.train_volume_mean,
-                    std=self.train_volume_std,
+                    mean=0.5,
+                    std=0.5,
+                    max_pixel_value=1.0,
+                    p=1.0,
                     always_apply=True,
                 ),
                 ToTensorV2(),
@@ -361,7 +363,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 divides = \
                     read_data(
                         train_surface_volume_dirs, 
-                        center_crop_z=None,
+                        center_crop_z=self.crop_size_z_pre,
                     )
                 
                 # Update mean and std
@@ -396,7 +398,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 divides = \
                     read_data(
                         val_surface_volume_dirs, 
-                        center_crop_z=None,
+                        center_crop_z=self.crop_size_z_pre,
                     )
                 
                 # Controls whether val dataset will be cropped to patches (crop_size)
@@ -426,7 +428,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 divides = \
                     read_data(
                         self.hparams.surface_volume_dirs, 
-                        center_crop_z=None,
+                        center_crop_z=self.crop_size_z_pre,
                     )
                 
                 # Update mean and std
@@ -458,7 +460,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
             divides = \
                 read_data(
                     self.hparams.surface_volume_dirs_test, 
-                    center_crop_z=None,
+                    center_crop_z=self.crop_size_z_pre,
                 )
             self.test_dataset = InMemorySurfaceVolumeDataset(
                 volumes=volumes, 

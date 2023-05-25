@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional, Tuple
 from albumentations import Rotate, DualTransform, ImageOnlyTransform, Resize, RandomScale
 from albumentations.augmentations.crops import functional as F_crops
 from albumentations.augmentations.geometric import functional as F_geometric
+from albumentations.augmentations import functional as F
 
 
 logger = logging.getLogger(__name__)
@@ -353,3 +354,50 @@ class RandomScaleResize(RandomScale):
         original_h, original_w = img.shape[:2]
         img = super().apply(img, scale, interpolation, **params)
         return F_geometric.resize(img, height=original_h, width=original_w, interpolation=interpolation)
+
+
+class SubtractDivide:
+    """Subtracttion and division is applied by the formula: 
+    `img = (img - subtract) / divide`
+
+    Targets:
+        image
+
+    Image types:
+        uint8, float32
+    """
+
+    def __init__(
+        self, 
+        subtract: float = 0.0, 
+        divide: float = 1.0,
+        always_apply=True,
+        p=1.0, 
+    ):
+        self.subtract = subtract
+        self.divide = divide
+        self.always_apply = always_apply
+        self.p = p
+
+    def __call__(self, *args, force_apply: bool = False, **kwargs) -> Dict[str, np.ndarray]:
+        # Toss a coin
+        if not force_apply and not self.always_apply and random.random() > self.p:
+            return kwargs
+        
+        subtract, divide = self.subtract, self.divide
+        
+        if (
+            "subtract" in kwargs and kwargs["subtract"] is not None and
+            "divide" in kwargs and kwargs["divide"] is not None
+        ):
+            subtract = kwargs["subtract"]
+            divide = kwargs["divide"]
+        else:
+            logger.warning(
+                f"Either subtract or divide values are not provided. "
+                f"Subtract is set to {subtract} and divide is set to {divide}."
+            )
+        
+        kwargs['image'] = F.normalize(kwargs['image'], subtract, divide, 1)
+
+        return kwargs
