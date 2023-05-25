@@ -208,13 +208,12 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         # Train dataset scale is min volume scale for surface_volume_dirs
         volume_scales = []
         for root in self.hparams.surface_volume_dirs:
-            if 'fragments_downscaled_' in root:
-                # Extract N from 'blah/blah/fragments_downscaled_N/blah/blah/'
-                volume_scales.append(
-                    float(root.split('fragments_downscaled_')[1].split('/')[0])
-                )
+            scale = 1.0
+            if 'fragments_downscaled_2' in root:
+                scale = 2.0
             else:
-                volume_scales.append(1.0)
+                logger.warning(f'Unknown scale for {root}, assuming 1.0') 
+            volume_scales.append(scale)
         self.train_dataset_scale = min(volume_scales)
         logger.info(f'train_dataset_scale: {self.train_dataset_scale}')
 
