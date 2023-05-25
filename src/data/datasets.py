@@ -362,13 +362,12 @@ def build_z_shift_scale_maps(
             volume = normalize_volume(
                 item['image'], 
                 item['masks'][0], 
-                item['masks'][2], 
                 mode=mode, 
                 normalize=normalize,
                 precomputed=(item['subtract'], item['divide']),
             )
             z, volume_mean_per_z = get_z_volume_mean_per_z(
-                volume, item['masks'][0], item['masks'][2]
+                volume, item['masks'][0]
             )
         
             z_shift, z_scale = fit_x_shift_scale(z, volume_mean_per_z, z_target, volume_mean_per_z_target)
