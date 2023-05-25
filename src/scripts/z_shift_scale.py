@@ -80,7 +80,7 @@ for fragment_id in range(len(volumes)):
         path_out = \
             args.output_dir / \
             Path(fragment_pathes[fragment_id]).relative_to(args.input_dir) / \
-            'surface_volume' / f'{z}.tif'
+            'surface_volume' / f'{z:02}.tif'
         logger.info(f'Saving fragment_id {fragment_id} layer {z} to {path_out}')
         
         path_out.parent.mkdir(parents=True, exist_ok=True)
