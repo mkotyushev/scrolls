@@ -21,6 +21,7 @@ logging.basicConfig(
 parser = argparse.ArgumentParser()
 parser.add_argument('--input_dir', type=Path, required=True)
 parser.add_argument('--output_dir', type=Path, required=True)
+parser.add_argument('--patch_size', type=int, default=128)
 args = parser.parse_args()
 
 # Copy all files (except .tif) to output directory keeping the same structure
@@ -54,6 +55,7 @@ for fragment_id in range(len(volumes)):
         ink_masks=[ink_masks[fragment_id]],
         subtracts=[subtracts[fragment_id]],
         divides=[divides[fragment_id]],
+        patch_size=(args.patch_size, args.patch_size),
     )
 
     def z_shift_scale_map(x):
