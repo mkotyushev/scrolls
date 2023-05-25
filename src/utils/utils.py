@@ -1,3 +1,5 @@
+import math
+import cv2
 import numpy as np
 import torch
 import torch.nn as nn
@@ -479,3 +481,29 @@ def build_nan_or_outliers_mask(arr):
     is_outlier = (arr < np.quantile(arr[~is_nan], 0.05)) | (arr > np.quantile(arr[~is_nan], 0.95))
 
     return is_nan, is_outlier
+
+
+def scale_shift_volume(volume, z_shift, z_scale, center_crop_z):
+    H, W, D = volume.shape
+    volume_flattened_xy = volume.reshape(H * W, D)
+
+    # Crop
+    center_z_scaled = (D // 2 - z_shift) / z_scale
+    center_crop_z_scaled = center_crop_z / z_scale
+    
+    z_start = max(math.floor(center_z_scaled - center_crop_z_scaled / 2), 0)
+    z_end = min(math.ceil(center_z_scaled + center_crop_z_scaled / 2), D)
+    
+    volume_flattened_xy = volume_flattened_xy[:, z_start:z_end]
+
+    # Scale
+    volume_flattened_xy = cv2.resize(
+        volume_flattened_xy, 
+        (center_crop_z, H*W),
+        fx=1, 
+        fy=1,
+        interpolation=cv2.INTER_LINEAR,
+    )
+
+    volume = volume_flattened_xy.reshape(H, W, center_crop_z)
+    return volume
