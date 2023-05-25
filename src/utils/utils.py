@@ -355,7 +355,7 @@ def convert_to_grayscale(model, backbone_name):
     return model
 
 
-def calculate_statistics(volume, scroll_mask, ink_mask, mode, normalize):
+def calculate_statistics(volume, scroll_mask, mode, normalize):
     assert mode in ['volume', 'volume_mean_per_z']
     assert normalize in ['minmax', 'meanstd', 'quantile']
 
@@ -363,10 +363,9 @@ def calculate_statistics(volume, scroll_mask, ink_mask, mode, normalize):
     
     # Get only scroll area
     scroll_mask_flattened_xy = (scroll_mask > 0).flatten()
-    ink_mask_flattened_xy = (ink_mask > 0).flatten()
     volume_flattened_xy = volume.reshape(H * W, D)
     volume_flattened_xy_scroll = volume_flattened_xy[
-        scroll_mask_flattened_xy & (~ink_mask_flattened_xy)
+        scroll_mask_flattened_xy
     ].astype(float)
 
     # On which array to calculate statistics
@@ -390,7 +389,7 @@ def calculate_statistics(volume, scroll_mask, ink_mask, mode, normalize):
     return subtract, divide
 
 
-def normalize_volume(volume, scroll_mask, ink_mask, mode='volume_mean_per_z', normalize='quantile', precomputed=None):
+def normalize_volume(volume, scroll_mask, mode='volume_mean_per_z', normalize='quantile', precomputed=None):
     assert mode in ['volume', 'volume_mean_per_z']
     assert normalize in ['minmax', 'meanstd', 'quantile']
 
@@ -398,7 +397,7 @@ def normalize_volume(volume, scroll_mask, ink_mask, mode='volume_mean_per_z', no
     if precomputed is not None:
         subtract, divide = precomputed
     else:
-        subtract, divide = calculate_statistics(volume, scroll_mask, ink_mask, mode, normalize)
+        subtract, divide = calculate_statistics(volume, scroll_mask, mode, normalize)
 
     # Normalize
     volume = (volume - subtract) / divide
@@ -406,14 +405,13 @@ def normalize_volume(volume, scroll_mask, ink_mask, mode='volume_mean_per_z', no
     return volume
 
 
-def get_z_volume_mean_per_z(volume, scroll_mask, ink_mask):
+def get_z_volume_mean_per_z(volume, scroll_mask):
     z = np.arange(volume.shape[2])
     H, W, D = volume.shape
     scroll_mask_flattened_xy = (scroll_mask > 0).flatten()
-    ink_mask_flattened_xy = (ink_mask > 0).flatten()
     volume_flattened_xy = volume.reshape(H * W, D)
     volume_mean_per_z = volume_flattened_xy[
-        scroll_mask_flattened_xy & (~ink_mask_flattened_xy)
+        scroll_mask_flattened_xy
     ].mean(0)
 
     return z, volume_mean_per_z

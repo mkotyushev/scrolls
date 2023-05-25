@@ -95,11 +95,10 @@ def read_data(surface_volume_dirs, center_crop_z=None):
 
     # Calculate statistics
     subtracts, divides = [], []
-    for volume, scroll_mask, ink_mask in zip(volumes, scroll_masks, ink_masks):
+    for volume, scroll_mask in zip(volumes, scroll_masks):
         subtract, divide = calculate_statistics(
             volume, 
             scroll_mask, 
-            ink_mask, 
             mode='volume_mean_per_z', 
             normalize='minmax'
         )
