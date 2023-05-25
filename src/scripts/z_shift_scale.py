@@ -1,5 +1,6 @@
 
 import argparse
+import gc
 import logging
 import cv2
 from pathlib import Path
@@ -42,19 +43,18 @@ fragment_pathes = sorted([
 ])
 logger.info(fragment_pathes)
 
-volumes, scroll_masks, ir_images, ink_masks, subtracts, divides = \
-    read_data(fragment_pathes, center_crop_z=None)
-
-for fragment_id in range(len(volumes)):
+for fragment_path in fragment_pathes:
+    volumes, scroll_masks, ir_images, ink_masks, subtracts, divides = \
+        read_data([fragment_path], center_crop_z=None)
     # Build z shift and scale maps
     z_shifts, z_scales = build_z_shift_scale_maps(
-        pathes=[fragment_pathes[fragment_id]],
-        volumes=[volumes[fragment_id]],
-        scroll_masks=[scroll_masks[fragment_id]],
-        ir_images=[ir_images[fragment_id]],
-        ink_masks=[ink_masks[fragment_id]],
-        subtracts=[subtracts[fragment_id]],
-        divides=[divides[fragment_id]],
+        pathes=[fragment_path],
+        volumes=[volumes[0]],
+        scroll_masks=[scroll_masks[0]],
+        ir_images=[ir_images[0]],
+        ink_masks=[ink_masks[0]],
+        subtracts=[subtracts[0]],
+        divides=[divides[0]],
         patch_size=(args.patch_size, args.patch_size),
     )
 
@@ -69,7 +69,7 @@ for fragment_id in range(len(volumes)):
 
     # Apply z shift and scale maps
     volume_transformed = geometric_transform(
-        volumes[fragment_id],
+        volumes[0],
         z_shift_scale_map,
         order=1,
     )
@@ -81,12 +81,15 @@ for fragment_id in range(len(volumes)):
     for z in range(volume_transformed.shape[2]):
         path_out = \
             args.output_dir / \
-            Path(fragment_pathes[fragment_id]).relative_to(args.input_dir) / \
+            Path(fragment_path).relative_to(args.input_dir) / \
             'surface_volume' / f'{z:02}.tif'
-        logger.info(f'Saving fragment_id {fragment_id} layer {z} to {path_out}')
+        logger.info(f'Saving layer {z} to {path_out}')
         
         path_out.parent.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(
             str(path_out),
             volume_transformed[:, :, z],
         )
+
+    del volumes, volume_transformed
+    gc.collect()
