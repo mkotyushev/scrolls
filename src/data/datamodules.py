@@ -10,6 +10,7 @@ from typing import List, Optional
 from lightning import LightningDataModule
 from torch.utils.data import DataLoader
 from albumentations.pytorch import ToTensorV2
+from tqdm import tqdm
 
 from src.data.datasets import InMemorySurfaceVolumeDataset
 from src.data.transforms import (
@@ -38,7 +39,7 @@ def read_data(surface_volume_dirs, center_crop_z=None):
     for root in surface_volume_dirs:
         root = Path(root)
         volume = []
-        for i in range(z_start, z_end):
+        for i in tqdm(range(z_start, z_end)):
             volume.append(
                 cv2.imread(
                     str(root / 'surface_volume' / f'{i:02}.tif'),

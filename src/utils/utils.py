@@ -368,7 +368,7 @@ def calculate_statistics(volume, scroll_mask, mode, normalize):
     volume_flattened_xy = volume.reshape(H * W, D)
     volume_flattened_xy_scroll = volume_flattened_xy[
         scroll_mask_flattened_xy
-    ].astype(float)
+    ]
 
     # On which array to calculate statistics
     volume_mean_per_z = volume_flattened_xy_scroll.mean(0)
