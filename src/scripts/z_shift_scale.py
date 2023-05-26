@@ -45,17 +45,21 @@ logger.info(fragment_pathes)
 
 for fragment_path in fragment_pathes:
     volumes, scroll_masks, ir_images, ink_masks, subtracts, divides = \
-        read_data([fragment_path], center_crop_z=None)
+        read_data([fragment_path], center_crop_z=16)
+
     # Build z shift and scale maps
     z_shifts, z_scales = build_z_shift_scale_maps(
         pathes=[fragment_path],
         volumes=[volumes[0]],
         scroll_masks=[scroll_masks[0]],
-        ir_images=[ir_images[0]],
-        ink_masks=[ink_masks[0]],
         subtracts=[subtracts[0]],
         divides=[divides[0]],
+        z_start=24,
+        crop_z_span=8,
+        mode='volume_mean_per_z', 
+        normalize='minmax', 
         patch_size=(args.patch_size, args.patch_size),
+        sigma=0.5,
     )
 
     def z_shift_scale_map(x):

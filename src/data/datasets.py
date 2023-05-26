@@ -302,10 +302,9 @@ def build_z_shift_scale_maps(
     pathes,
     volumes, 
     scroll_masks, 
-    ir_images,
-    ink_masks,
     subtracts,
     divides,
+    z_start=0,
     crop_z_span=8,
     mode='volume_mean_per_z', 
     normalize='minmax', 
@@ -323,8 +322,8 @@ def build_z_shift_scale_maps(
             volumes=[volumes[i]],
             scroll_masks=[scroll_masks[i]],
             pathes=[path],
-            ir_images=[ir_images[i]],
-            ink_masks=[ink_masks[i]],
+            ir_images=None,
+            ink_masks=None,
             transform=None,
             patch_size=patch_size,
             subtracts=[subtracts[i]],
@@ -354,6 +353,7 @@ def build_z_shift_scale_maps(
             z, volume_mean_per_z = get_z_volume_mean_per_z(
                 volume, item['masks'][0]
             )
+            z = z + z_start
         
             z_shift, z_scale = fit_x_shift_scale(z, volume_mean_per_z, z_target, volume_mean_per_z_target)
 
