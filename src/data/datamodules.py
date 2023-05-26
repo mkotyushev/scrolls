@@ -38,14 +38,15 @@ def read_data(surface_volume_dirs, center_crop_z=None):
     volumes = []
     for root in surface_volume_dirs:
         root = Path(root)
-        volume = []
-        for i in tqdm(range(z_start, z_end)):
-            volume.append(
-                cv2.imread(
-                    str(root / 'surface_volume' / f'{i:02}.tif'),
-                    cv2.IMREAD_UNCHANGED
-                )
+        volume = None
+        for i, layer_index in tqdm(enumerate(range(z_start, z_end))):
+            v = cv2.imread(
+                str(root / 'surface_volume' / f'{layer_index:02}.tif'),
+                cv2.IMREAD_UNCHANGED
             )
+            if volume is None:
+                volume = np.zeros((center_crop_z, *v.shape), dtype=np.uint16)
+            volume[i] = v
         volume = np.stack(volume).transpose(1, 2, 0)
         volumes.append(volume)
 
