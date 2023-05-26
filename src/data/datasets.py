@@ -159,21 +159,6 @@ class InMemorySurfaceVolumeDataset:
                     self.divides[i],
                     dtype=np.float32
                 )
-            
-            # Flatten patches
-            volume_patches = volume_patches.reshape(-1, *volume_patches.shape[2:])
-            scroll_mask_patches = scroll_mask_patches.reshape(-1, *scroll_mask_patches.shape[2:])
-            if ir_image_patches is not None:
-                ir_image_patches = ir_image_patches.reshape(-1, *ir_image_patches.shape[2:])
-            if ink_mask_patches is not None:
-                ink_mask_patches = ink_mask_patches.reshape(-1, *ink_mask_patches.shape[2:])
-            pathes_patches = pathes_patches.reshape(-1, *pathes_patches.shape[2:])
-            shape_patches_patches = shape_patches_patches.reshape(-1, *shape_patches_patches.shape[2:])
-            indices_patches = indices_patches.reshape(-1, *indices_patches.shape[2:])
-            if subtracts_patches is not None:
-                subtracts_patches = subtracts_patches.reshape(-1, *subtracts_patches.shape[2:])
-            if divides_patches is not None:
-                divides_patches = divides_patches.reshape(-1, *divides_patches.shape[2:])
 
             # Drop empty patches (no 1s in scroll mask)
             mask = (scroll_mask_patches > 0).any(axis=(-1, -2))
