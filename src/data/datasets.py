@@ -44,6 +44,7 @@ class InMemorySurfaceVolumeDataset:
         ir_images: Optional[np.ndarray] = None,
         ink_masks: Optional[np.ndarray] = None,
         transform: Optional[Callable] = None,
+        transform_mix: Optional[Callable] = None,
         patch_size: Optional[Tuple[int, int]] = None,
         subtracts: Optional[List[int]] = None,
         divides: Optional[List[int]] = None,
@@ -58,6 +59,7 @@ class InMemorySurfaceVolumeDataset:
         self.indices = None
 
         self.transform = transform
+        self.transform_mix = transform_mix
         self.patch_size = to_2tuple(patch_size)
         self.subtracts = subtracts
         self.divides = divides
@@ -224,11 +226,8 @@ class InMemorySurfaceVolumeDataset:
             indices, \
             subtracts, \
             divides
-    
-    def __getitem__(
-        self, 
-        idx
-    ) -> Dict[str, Any]:
+
+    def get_item_single(self, idx) -> Dict[str, Any]:
         # Always here
         image = self.volumes[idx]
         masks = [self.scroll_masks[idx]]
@@ -270,6 +269,21 @@ class InMemorySurfaceVolumeDataset:
             output = self.transform(**output)
 
         return output
+
+    def __getitem__(
+        self, 
+        idx
+    ) -> Dict[str, Any]:
+        output = self.get_item_single(idx)
+        if self.transform_mix is None:
+            return output
+        
+        output_keys = list(output.keys())
+        output1 = self.get_item_single(idx)  # same volume, different random crop is assumed
+        output.update({f'{k}1': v for k, v in output1.items()})
+        
+        output = self.transform_mix(**output)
+        return {k: v for k, v in output.items() if k in output_keys}
 
 
 # Constants of fragment 2

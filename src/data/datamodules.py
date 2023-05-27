@@ -14,11 +14,14 @@ from tqdm import tqdm
 
 from src.data.datasets import InMemorySurfaceVolumeDataset
 from src.data.transforms import (
+    CopyPastePositive,
+    CutMix,
+    MixUp,
     RandomCropVolumeInside2dMask, 
     CenterCropVolume, 
     ResizeVolume, 
-    SubtractDivide, 
-    ToCHWD, 
+    ToCHWD,
+    ToFloatMasks, 
 )
 from src.utils.utils import calculate_statistics, surface_volume_collate_fn
 
@@ -201,6 +204,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         self.test_dataset = None
 
         self.train_transform = None
+        self.train_transform_mix = None
         self.val_transform = None
         self.test_transform = None
 
@@ -313,6 +317,24 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     std=self.train_volume_std,
                     always_apply=True,
                 ),
+            ],
+        )
+        self.train_transform_mix = A.Compose(
+            [
+                ToFloatMasks(),
+                A.OneOf(
+                    [
+                        CutMix(
+                            max_width=int(self.hparams.img_size * 0.3), 
+                            max_height=int(self.hparams.img_size * 0.3), 
+                            p=1.0,
+                            always_apply=False,
+                        ),
+                        MixUp(alpha=3.0, beta=3.0, p=1.0, always_apply=False),
+                        CopyPastePositive(mask_index=2, p=1.0, always_apply=False),
+                    ],
+                    p=0.5,
+                ),
                 ToTensorV2(),
                 ToCHWD(always_apply=True),
             ],
@@ -381,6 +403,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     ir_images=ir_images, 
                     ink_masks=ink_masks,
                     transform=self.train_transform,
+                    transform_mix=self.train_transform_mix,
                     # Patches are generated in dataloader randomly 
                     # or whole volume is provided
                     patch_size=None,
@@ -446,6 +469,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     ir_images=ir_images, 
                     ink_masks=ink_masks,
                     transform=self.train_transform,
+                    transform_mix=self.train_transform_mix,
                     patch_size=None,  # patches are generated in dataloader randomly
                     subtracts=subtracts,
                     divides=divides,
@@ -486,6 +510,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
 
         if self.train_dataset is not None:
             self.train_dataset.transform = self.train_transform
+            self.train_dataset.transform_mix = self.train_transform_mix
         if self.val_dataset is not None:
             self.val_dataset.transform = self.val_transform
         if self.test_dataset is not None:

@@ -583,7 +583,6 @@ class SegmentationModule(BaseModule):
             {
                 'train_metrics': ModuleDict(
                     {
-                        'f05': BinaryFBetaScore(beta=0.5),
                         'preview': PredictionTargetPreviewGrid(preview_downscale=16, n_images=9),
                     }
                 ),
@@ -609,6 +608,7 @@ class SegmentationModule(BaseModule):
                 batch_size=batch['image'].shape[0],
             )
         
+        y, y_pred = self.extract_targets_and_probas_for_metric(preds, batch)
         for metric_name, metric in self.metrics['train_metrics'].items():
             if isinstance(metric, PredictionTargetPreviewGrid):  # Epoch-level
                 metric.update(
@@ -618,7 +618,6 @@ class SegmentationModule(BaseModule):
                     pathes=batch['path'],
                 )
             else:
-                y, y_pred = self.extract_targets_and_probas_for_metric(preds, batch)
                 metric.update(y_pred.flatten(), y.flatten())
                 self.log(
                     f't_{metric_name}',
