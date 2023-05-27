@@ -106,6 +106,7 @@ def read_data(surface_volume_dirs, center_crop_z=None):
         divides.append(divide)
 
     logger.info(f'Loaded {len(volumes)} volumes from {surface_volume_dirs} dirs')
+    logger.info(f'Statistics: subtracts={subtracts}, divides={divides}')
 
     return \
         volumes, \
@@ -231,9 +232,13 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         rotate_limit_degrees_xy = 45
 
         if self.hparams.resize_xy == 'crop':
+            scale_z_max = 1.5
+
             # Crop to crop_size & crop_size_z
             base_size = self.hparams.crop_size
-            self.crop_size_z_pre = self.hparams.crop_size_z * 2
+            self.crop_size_z_pre = math.ceil(
+                self.hparams.crop_size_z * scale_z_max
+            )
             base_depth = self.hparams.crop_size_z
 
             logger.info(
@@ -250,7 +255,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     base_depth=base_depth,
                     scale=(0.5, 2.0),
                     ratio=(0.9, 1.1),
-                    scale_z=(1.0, 2.0),
+                    scale_z=(1.0, scale_z_max),
                     always_apply=True,
                     crop_mask_index=0,
                 )
