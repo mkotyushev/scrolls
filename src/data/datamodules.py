@@ -325,8 +325,8 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 A.OneOf(
                     [
                         CutMix(
-                            max_width=int(self.hparams.img_size * 0.3), 
-                            max_height=int(self.hparams.img_size * 0.3), 
+                            width=int(self.hparams.img_size * 0.3), 
+                            height=int(self.hparams.img_size * 0.3), 
                             p=1.0,
                             always_apply=False,
                         ),

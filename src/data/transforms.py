@@ -473,13 +473,13 @@ class MixUp:
 class CutMix:
     def __init__(
         self,
-        max_width: int = 64,
-        max_height: int = 64,
+        width: int = 64,
+        height: int = 64,
         always_apply: bool = False,
         p: float = 0.5,
     ):
-        self.max_width = max_width
-        self.max_height = max_height
+        self.width = width
+        self.height = height
         self.always_apply = always_apply
         self.p = p
 
@@ -491,18 +491,18 @@ class CutMix:
         h, w, _ = kwargs['image'].shape
         h1, w1, _ = kwargs['image1'].shape
         if (
-            h < self.max_height or 
-            w < self.max_width or 
-            h1 < self.max_height or 
-            w1 < self.max_width
+            h < self.height or 
+            w < self.width or 
+            h1 < self.height or 
+            w1 < self.width
         ):
             raise ValueError("CutMix transformation expects both images to be at least {}x{} pixels.".format(self.max_height, self.max_width))
 
         # Get random bbox
-        h_start = random.randint(0, h - self.max_height)
-        w_start = random.randint(0, w - self.max_width)
-        h_end = h_start + random.randint(0, self.max_height)
-        w_end = w_start + random.randint(0, self.max_width)
+        h_start = random.randint(0, h - self.height)
+        w_start = random.randint(0, w - self.width)
+        h_end = h_start + self.height
+        w_end = w_start + self.width
 
         # Copy image and masks region
         kwargs['image'][h_start:h_end, w_start:w_end] = kwargs['image1'][h_start:h_end, w_start:w_end]
