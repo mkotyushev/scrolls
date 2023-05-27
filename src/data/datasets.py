@@ -204,7 +204,7 @@ class InMemorySurfaceVolumeDataset:
             ink_masks = None
         pathes = np.concatenate(pathes, axis=0)
         shape_patches = np.concatenate(shape_patches, axis=0)
-        indices = np.concatenate(indices, axis=1)
+        indices = np.concatenate(indices, axis=0)
         if len(subtracts) > 0:
             subtracts = np.concatenate(subtracts, axis=0)
         else:
