@@ -517,6 +517,7 @@ class SegmentationModule(BaseModule):
         decoder_attention_type: Literal[None, 'scse'] = None,
         backbone_name: str = 'swinv2_tiny_window8_256.ms_in1k',
         in_channels: int = 6,
+        log_preview_every_n_epochs: int = 10,
         label_smoothing: float = 0.0,
         pos_weight: float = 1.0,
         optimizer_init: Optional[Dict[str, Any]] = None,
@@ -611,12 +612,13 @@ class SegmentationModule(BaseModule):
         y, y_pred = self.extract_targets_and_probas_for_metric(preds, batch)
         for metric_name, metric in self.metrics['train_metrics'].items():
             if isinstance(metric, PredictionTargetPreviewGrid):  # Epoch-level
-                metric.update(
-                    batch['image'][..., batch['image'].shape[-1] // 2],
-                    y_pred, 
-                    y, 
-                    pathes=batch['path'],
-                )
+                if self.current_epoch % self.hparams.log_preview_every_n_epochs == 0:
+                    metric.update(
+                        batch['image'][..., batch['image'].shape[-1] // 2],
+                        y_pred, 
+                        y, 
+                        pathes=batch['path'],
+                    )
             else:
                 metric.update(y_pred.flatten(), y.flatten())
                 self.log(
@@ -668,14 +670,15 @@ class SegmentationModule(BaseModule):
         y_pred_masked = y_pred.flatten()[batch['mask_0'].flatten() == 1]
         for metric in self.metrics['val_metrics'].values():
             if isinstance(metric, PredictionTargetPreviewAgg) and batch['indices'] is not None:
-                metric.update(
-                    batch['image'][..., batch['image'].shape[-1] // 2],
-                    y_pred, 
-                    y, 
-                    pathes=batch['path'],
-                    indices=batch['indices'], 
-                    shape_patches=batch['shape_patches'],
-                )
+                if self.current_epoch % self.hparams.log_preview_every_n_epochs == 0:
+                    metric.update(
+                        batch['image'][..., batch['image'].shape[-1] // 2],
+                        y_pred, 
+                        y, 
+                        pathes=batch['path'],
+                        indices=batch['indices'], 
+                        shape_patches=batch['shape_patches'],
+                    )
             else:
                 metric.update(y_pred_masked.flatten(), y_masked.flatten())
         return total_loss
@@ -691,14 +694,15 @@ class SegmentationModule(BaseModule):
 
         for metric_name, metric in self.metrics['train_metrics'].items():
             if isinstance(metric, PredictionTargetPreviewGrid):
-                captions, previews = metric.compute()
-                self.trainer.logger.log_image(
-                    key=f't_{metric_name}',	
-                    images=previews,
-                    caption=captions,
-                    step=self.current_epoch,
-                )
-                metric.reset()
+                if self.current_epoch % self.hparams.log_preview_every_n_epochs == 0:
+                    captions, previews = metric.compute()
+                    self.trainer.logger.log_image(
+                        key=f't_{metric_name}',	
+                        images=previews,
+                        caption=captions,
+                        step=self.current_epoch,
+                    )
+                    metric.reset()
 
     def on_validation_epoch_end(self) -> None:
         """Called in the validation loop at the very end of the epoch."""
@@ -707,13 +711,14 @@ class SegmentationModule(BaseModule):
 
         for metric_name, metric in self.metrics['val_metrics'].items():
             if isinstance(metric, PredictionTargetPreviewAgg):
-                captions, previews = metric.compute()
-                self.trainer.logger.log_image(
-                    key=f'v_{metric_name}',	
-                    images=previews,
-                    caption=captions,
-                    step=self.current_epoch,
-                )
+                if self.current_epoch % self.hparams.log_preview_every_n_epochs == 0:
+                    captions, previews = metric.compute()
+                    self.trainer.logger.log_image(
+                        key=f'v_{metric_name}',	
+                        images=previews,
+                        caption=captions,
+                        step=self.current_epoch,
+                    )
             else:
                 self.log(
                     f'v_{metric_name}',
