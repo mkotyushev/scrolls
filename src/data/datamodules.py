@@ -45,7 +45,7 @@ def read_data(surface_volume_dirs, center_crop_z=None):
                 cv2.IMREAD_UNCHANGED
             )
             if volume is None:
-                volume = np.zeros((center_crop_z, *v.shape), dtype=np.uint16)
+                volume = np.zeros((z_end - z_start, *v.shape), dtype=np.uint16)
             volume[i] = v
         volume = np.stack(volume).transpose(1, 2, 0)
         volumes.append(volume)
