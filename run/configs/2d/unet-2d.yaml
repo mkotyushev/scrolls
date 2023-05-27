@@ -20,7 +20,7 @@ trainer:
 
   # limit_train_batches: 10
   # limit_val_batches: 10
-  max_epochs: 32
+  max_epochs: 48
   num_sanity_val_steps: 0
   accumulate_grad_batches: 1
   reload_dataloaders_every_n_epochs: 0
@@ -100,11 +100,14 @@ data:
   class_path: src.data.datamodules.SurfaceVolumeDatamodule
   init_args:
     surface_volume_dirs: 
-      - /workspace/data/fragments/train/1
-      - /workspace/data/fragments/train/2
-      - /workspace/data/fragments/train/3
+      - /workspace/data/fragments_z_shift_scale/train/1
+      - /workspace/data/fragments_z_shift_scale_cropped/train/2a
+      - /workspace/data/fragments_z_shift_scale_cropped/train/2b
+      - /workspace/data/fragments_z_shift_scale_cropped/train/2c
+      - /workspace/data/fragments_z_shift_scale_cropped/train/2d
+      - /workspace/data/fragments_z_shift_scale/train/3
     surface_volume_dirs_test: null
-    val_dir_indices: 2
+    val_dir_indices: 1
     crop_size: 256
     crop_size_z: 6
     img_size: 256
