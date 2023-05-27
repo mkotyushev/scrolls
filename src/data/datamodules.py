@@ -305,12 +305,6 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     p=0.4
                 ),
                 A.GridDistortion(num_steps=5, distort_limit=0.3, p=0.5),
-                A.CoarseDropout(
-                    max_holes=1, 
-                    max_width=int(self.hparams.img_size * 0.3), 
-                    max_height=int(self.hparams.img_size * 0.3), 
-                    mask_fill_value=0, p=0.5
-                ),
                 A.Normalize(
                     max_pixel_value=MAX_PIXEL_VALUE,
                     mean=self.train_volume_mean,
@@ -324,6 +318,14 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 ToFloatMasks(),
                 A.OneOf(
                     [
+                        A.CoarseDropout(
+                            max_holes=1, 
+                            max_width=int(self.hparams.img_size * 0.3), 
+                            max_height=int(self.hparams.img_size * 0.3), 
+                            mask_fill_value=0, 
+                            p=1.0, 
+                            always_apply=False,
+                        ),
                         CutMix(
                             width=int(self.hparams.img_size * 0.3), 
                             height=int(self.hparams.img_size * 0.3), 
