@@ -738,14 +738,12 @@ class SegmentationModule(BaseModule):
                         step=self.current_epoch,
                     )
 
-    def on_validation_epoch_end(self) -> None:
+    def _on_validation_epoch_end(self, tta) -> None:
         """Called in the validation loop at the very end of the epoch."""
         if self.metrics is None:
             return
 
-        tta = self.tta is not None and self.current_epoch % self.hparams.tta_each_n_epochs == 0
-        metric_prefix = 'v' if not tta else 'v_tta'
-        span_prefix = 'v' if not tta else 'v_tta'
+        metric_prefix = span_prefix = 'v' if not tta else 'v_tta'
         for metric_name, metric in self.metrics[f'{span_prefix}_metrics'].items():
             if isinstance(metric, PredictionTargetPreviewAgg):
                 metric_values, captions, previews = metric.compute()
@@ -773,6 +771,12 @@ class SegmentationModule(BaseModule):
                     prog_bar=True,
                 )
             metric.reset()
+
+    def on_validation_epoch_end(self) -> None:
+        tta = self.tta is not None and self.current_epoch % self.hparams.tta_each_n_epochs == 0
+        self._on_validation_epoch_end(tta=False)
+        if tta:
+            self._on_validation_epoch_end(tta=True)
 
     def extract_targets_and_probas_for_metric(self, preds, batch):
         """Extract preds and targets from batch.
