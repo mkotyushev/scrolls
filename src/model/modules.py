@@ -139,7 +139,7 @@ class BaseModule(LightningModule):
                 param.requires_grad = selected
 
     def training_step(self, batch, batch_idx, **kwargs):
-        total_loss, losses, preds = self.compute_loss_preds(batch, **kwargs)
+        total_loss, losses, preds = self.compute_loss_preds(batch, tta=False, **kwargs)
         for loss_name, loss in losses.items():
             self.log(
                 f'tl_{loss_name}', 
@@ -172,7 +172,7 @@ class BaseModule(LightningModule):
         return total_loss
     
     def validation_step(self, batch: Tensor, batch_idx: int, dataloader_idx: Optional[int] = None, **kwargs) -> Tensor:
-        total_loss, losses, preds = self.compute_loss_preds(batch, **kwargs)
+        total_loss, losses, preds = self.compute_loss_preds(batch, tta=True, **kwargs)
         assert dataloader_idx is None or dataloader_idx == 0, 'Only one val dataloader is supported.'
         for loss_name, loss in losses.items():
             self.log(
@@ -188,7 +188,7 @@ class BaseModule(LightningModule):
         return total_loss
 
     def predict_step(self, batch: Tensor, batch_idx: int, dataloader_idx: Optional[int] = None, **kwargs) -> Tensor:
-        _, _, preds = self.compute_loss_preds(batch, **kwargs)
+        _, _, preds = self.compute_loss_preds(batch, tta=True, **kwargs)
         return preds
 
     def log_metrics_and_reset(
@@ -560,9 +560,12 @@ class SegmentationModule(BaseModule):
 
         self.tta = Tta(model=self.model, n_replays=tta_n_replays)
 
-    def compute_loss_preds(self, batch, *args, **kwargs):
+    def compute_loss_preds(self, batch, tta=False, *args, **kwargs):
         """Compute losses and predictions."""
-        preds = self.tta(batch['image'])
+        if tta:
+            preds = self.tta(batch['image'])
+        else:
+            preds = self.model(batch['image'])
 
         # 3d_acs_weights outputs probabilities, not logits
         weight = torch.where(
@@ -602,7 +605,7 @@ class SegmentationModule(BaseModule):
         self.cat_metrics = None
 
     def training_step(self, batch, batch_idx, **kwargs):
-        total_loss, losses, preds = self.compute_loss_preds(batch, **kwargs)
+        total_loss, losses, preds = self.compute_loss_preds(batch, tta=False, **kwargs)
         for loss_name, loss in losses.items():
             self.log(
                 f'tl_{loss_name}', 
@@ -656,7 +659,7 @@ class SegmentationModule(BaseModule):
         return total_loss
     
     def validation_step(self, batch: Tensor, batch_idx: int, dataloader_idx: Optional[int] = None, **kwargs) -> Tensor:
-        total_loss, losses, preds = self.compute_loss_preds(batch, **kwargs)
+        total_loss, losses, preds = self.compute_loss_preds(batch, tta=True, **kwargs)
         assert dataloader_idx is None or dataloader_idx == 0, 'Only one val dataloader is supported.'
         for loss_name, loss in losses.items():
             self.log(
@@ -688,7 +691,7 @@ class SegmentationModule(BaseModule):
         return total_loss
 
     def predict_step(self, batch: Tensor, batch_idx: int, dataloader_idx: Optional[int] = None, **kwargs) -> Tensor:
-        _, _, preds = self.compute_loss_preds(batch, **kwargs)
+        _, _, preds = self.compute_loss_preds(batch, tta=True, **kwargs)
         return preds
 
     def on_train_epoch_end(self) -> None:
