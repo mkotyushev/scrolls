@@ -5,7 +5,7 @@ import random
 import cv2
 import numpy as np
 import torch
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from albumentations import Rotate, DualTransform, ImageOnlyTransform, Resize, RandomScale
 from albumentations.augmentations.crops import functional as F_crops
 from albumentations.augmentations.geometric import functional as F_geometric
@@ -710,7 +710,7 @@ class Tta:
             ],
         ]
 
-    def __call__(self, batch: torch.Tensor) -> torch.Tensor:
+    def predict(self, batch: torch.Tensor) -> List[torch.Tensor]:
         preds = []
 
         # Apply TTA
@@ -719,7 +719,7 @@ class Tta:
             batch_aug = batch.clone()
             for transform in transform_chain:
                 if transform is not None:
-                    batch_aug = transform.apply(batch)
+                    batch_aug = transform.apply(batch_aug)
             
             # Predict
             pred_aug = self.model(batch_aug)
@@ -732,6 +732,11 @@ class Tta:
             
             preds.append(pred_aug)
 
+        return preds
+
+    def __call__(self, batch: torch.Tensor) -> torch.Tensor:
+        preds = self.predict(batch)
+        
         # Average predictions, ignoring NaNs
         preds = torch.stack(preds, dim=0)
         preds = torch.nanmean(preds, dim=0)
