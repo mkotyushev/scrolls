@@ -650,13 +650,13 @@ class Tta:
         preds = []
 
         # Predict without TTA
-        pred = self.model.predict(image)
+        pred = self.model(image)
         preds.append(pred)
 
         # Apply TTA
         for _ in range(self.n_replays):
             replay = self.transform(image=image)
-            pred = self.model.predict(replay['image']).cpu().numpy()
+            pred = self.model(replay['image']).cpu().numpy()
             pred = A.ReplayCompose.replay(invert_replay(replay), image=pred)
             pred = torch.from_numpy(pred)
             preds.append(pred)
