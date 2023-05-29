@@ -371,6 +371,17 @@ class SurfaceVolumeDatamodule(LightningDataModule):
     def setup(self, stage: str = None) -> None:
         self.build_transforms()
 
+        # Controls whether val dataset will be cropped to patches (crop_size)
+        # with step (crop_size // 2) or whole volume is provided (None)
+        val_test_patch_size = \
+            None \
+            if self.hparams.resize_xy in ['resize', 'none'] else \
+            self.hparams.crop_size
+        val_test_patch_step = \
+            None \
+            if self.hparams.resize_xy in ['resize', 'none'] else \
+            self.hparams.crop_size // 2
+
         if self.train_dataset is None:
             if (
                 self.val_dataset is None and 
@@ -430,17 +441,6 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                         center_crop_z=self.crop_size_z_pre,
                     )
                 
-                # Controls whether val dataset will be cropped to patches (crop_size)
-                # with step (crop_size // 2) or whole volume is provided (None)
-                val_patch_size = \
-                    None \
-                    if self.hparams.resize_xy in ['resize', 'none'] else \
-                    self.hparams.crop_size
-                val_patch_step = \
-                    None \
-                    if self.hparams.resize_xy in ['resize', 'none'] else \
-                    self.hparams.crop_size // 2
-                
                 self.val_dataset = InMemorySurfaceVolumeDataset(
                     volumes=volumes, 
                     scroll_masks=scroll_masks, 
@@ -448,8 +448,8 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     ir_images=ir_images, 
                     ink_masks=ink_masks,
                     transform=self.val_transform,
-                    patch_size=val_patch_size,
-                    patch_step=val_patch_step,
+                    patch_size=val_test_patch_size,
+                    patch_step=val_test_patch_step,
                     subtracts=subtracts,
                     divides=divides,
                 )
@@ -504,8 +504,8 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 ir_images=ir_images, 
                 ink_masks=ink_masks,
                 transform=self.test_transform,
-                patch_size=self.hparams.crop_size,
-                patch_step=self.hparams.crop_size // 2,
+                patch_size=val_test_patch_size,
+                patch_step=val_test_patch_step,
                 subtracts=subtracts,
                 divides=divides,
             )
