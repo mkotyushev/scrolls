@@ -520,6 +520,86 @@ class ToFloatMasks:
         return kwargs
 
 
+class EnlargePositive:
+    """Scale up masked area."""
+    def __init__(
+        self, 
+        mask_index: int = 2,
+        scale_limit: float = 0.1,
+        interpolation=cv2.INTER_LINEAR,
+        always_apply=False,
+        p=1.0, 
+    ):
+        self.mask_index = mask_index
+        self.scale_limit = scale_limit
+        self.interpolation = interpolation
+        self.always_apply = always_apply
+        self.p = p
+
+    def __call__(self, *args, force_apply: bool = False, **kwargs) -> Dict[str, np.ndarray]:
+        # Toss a coin
+        if not force_apply and not self.always_apply and random.random() > self.p:
+            return kwargs
+            
+        # Get random scale
+        scale = 1 + random.uniform(0, self.scale_limit)
+
+        # Get crop bbox around center of mass
+        mask = kwargs['masks'][self.mask_index]
+        center_h = math.floor(mask.mean(axis=1) * scale)
+        center_w = math.floor(mask.mean(axis=0) * scale)
+        h_start = max(0, center_h - mask.shape[0] // 2)
+        w_start = max(0, center_w - mask.shape[1] // 2)
+        h_end = min(kwargs['image'].shape[0], h_start + mask.shape[0])
+        w_end = min(kwargs['image'].shape[1], w_start + mask.shape[1])
+
+        # Copy image and masks
+        image_larger = kwargs['image'].copy()
+        masks_larger = [mask.copy() for mask in kwargs['masks']]
+
+        # Scale up and crop around center of mass
+        image_larger = cv2.resize(
+            image_larger, 
+            (0, 0),
+            fx=scale, 
+            fy=scale,
+            interpolation=self.interpolation,
+        )
+        image_larger = F_crops.crop(
+            image_larger, 
+            xmin=w_start,
+            ymin=h_start,
+            xmax=w_end,
+            ymax=h_end,
+        )
+
+        for i in range(len(masks_larger)):
+            masks_larger[i] = cv2.resize(
+                masks_larger[i], 
+                (0, 0),
+                fx=scale, 
+                fy=scale,
+                interpolation=cv2.INTER_NEAREST,
+            )
+            masks_larger[i] = F_crops.crop(
+                masks_larger[i], 
+                xmin=w_start,
+                ymin=h_start,
+                xmax=w_end,
+                ymax=h_end,
+            )
+
+        # Get enlarged mask
+        mask = masks_larger[self.mask_index] > 0
+
+        # Copy masked area
+        kwargs['image'][h_start:h_end, w_start:w_end][mask] = image_larger[mask]
+        for i in range(len(kwargs['masks'])):
+            kwargs['masks'][i][h_start:h_end, w_start:w_end][mask] = masks_larger[i][mask]
+
+        return kwargs
+
+
 def invert_replay(replay):
     inverse_transforms = []
     for transform in replay['transforms']:
