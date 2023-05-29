@@ -251,13 +251,15 @@ def _unpatchify2d_avg(  # pylint: disable=too-many-locals
 
 class PredictionTargetPreviewAgg(nn.Module):
     """Aggregate prediction and target patches to images with downscaling."""
-    def __init__(self, preview_downscale: int = 4):
+    def __init__(self, preview_downscale: int = 4, metrics=None):
         super().__init__()
         self.preview_downscale = preview_downscale
+        self.metrics = metrics
         self.previews = {}
         self.shapes = {}
 
     def reset(self):
+        # Note: metrics are reset in compute()
         self.previews = {}
         self.shapes = {}
 
@@ -266,38 +268,20 @@ class PredictionTargetPreviewAgg(nn.Module):
         input: torch.Tensor,
         probas: torch.Tensor, 
         target: torch.Tensor, 
+        mask: torch.LongTensor,
         indices: torch.LongTensor, 
         pathes: list[str], 
         shape_patches: torch.LongTensor,
         shape_original: torch.LongTensor,
     ):
-        # Get preview images
-        input = F.interpolate(
-            input.float(),
-            scale_factor=1 / self.preview_downscale, 
-            mode='bilinear',
-            align_corners=False, 
-        )
-        probas = F.interpolate(
-            probas.float().unsqueeze(1),  # interpolate as (N, C, H, W)
-            scale_factor=1 / self.preview_downscale, 
-            mode='bilinear', 
-            align_corners=False, 
-        ).squeeze(1)
-        target = F.interpolate(
-            target.float().unsqueeze(1),  # interpolate as (N, C, H, W)
-            scale_factor=1 / self.preview_downscale,
-            mode='bilinear',
-            align_corners=False, 
-        ).squeeze(1)
-
-        # To CPU * types
-        input, probas, target, indices, shape_patches = \
-            input.cpu(), \
-            probas.cpu(), \
-            target.cpu(), \
-            indices.cpu().long(), \
-            shape_patches.cpu().long()
+        # To CPU & types
+        input, probas, target, mask, indices, shape_patches = \
+            input.cpu().float().numpy(), \
+            probas.cpu().float().numpy(), \
+            target.cpu().float().numpy(), \
+            mask.cpu().long().numpy(), \
+            indices.cpu().long().numpy(), \
+            shape_patches.cpu().long().numpy()
 
         patch_size = probas.shape[-2:]
 
@@ -309,16 +293,11 @@ class PredictionTargetPreviewAgg(nn.Module):
                     *shape_patches[i].tolist(),
                     *patch_size,
                 ]
-                self.previews[f'input_{path}'] = torch.zeros(shape, dtype=torch.float32)
-                self.previews[f'proba_{path}'] = torch.zeros(shape, dtype=torch.float32)
-                self.previews[f'target_{path}'] = torch.zeros(shape, dtype=torch.float32)
-                self.shapes[path] = []
-                for d in shape_original[i].tolist()[:2]:
-                    assert d % self.preview_downscale == 0, \
-                        f'shape_original = {shape_original[i].tolist()}, ' \
-                        f'preview_downscale = {self.preview_downscale}, ' \
-                        f'each dim size should be divisible by preview_downscale'
-                    self.shapes[path].append(d // self.preview_downscale)
+                self.previews[f'input_{path}'] = np.zeros(shape, dtype=np.float32)
+                self.previews[f'proba_{path}'] = np.zeros(shape, dtype=np.float32)
+                self.previews[f'target_{path}'] = np.zeros(shape, dtype=np.float32)
+                self.previews[f'mask_{path}'] = np.zeros(shape, dtype=np.float32)
+                self.shapes[path] = shape_original[i].tolist()[:2]
 
             patch_index_w, patch_index_h = indices[i].tolist()
 
@@ -327,29 +306,63 @@ class PredictionTargetPreviewAgg(nn.Module):
             self.previews[f'proba_{path}'][patch_index_h, patch_index_w] = \
                 probas[i]
             self.previews[f'target_{path}'][patch_index_h, patch_index_w] = \
-                target[i].float()
+                target[i]
+            self.previews[f'mask_{path}'][patch_index_h, patch_index_w] = \
+                mask[i]
     
     def compute(self):
-        captions, previews_unpatchified = [], []
-        for name, preview in self.previews.items():
+        # Unpatchify
+        for name in self.previews:
             path = '_'.join(name.split('_')[1:])
             shape_original = self.shapes[path]
             if name.startswith('proba_'):
                 # Average overlapping patches
-                preview_unpatchified = _unpatchify2d_avg(
-                    preview.numpy(), 
+                self.previews[name] = _unpatchify2d_avg(
+                    self.previews[name], 
                     shape_original
                 )
             else:
                 # Just unpatchify
-                preview_unpatchified = unpatchify(
-                    preview.numpy(), 
+                self.previews[name] = unpatchify(
+                    self.previews[name], 
                     shape_original
                 )
-            previews_unpatchified.append(preview_unpatchified)
-            captions.append(name)
 
-        return captions, previews_unpatchified
+        # Compute metrics if available
+        if self.metrics is not None:
+            preds, targets = [], []
+            for name in self.previews:
+                if name.startswith('proba_'):
+                    path = '_'.join(name.split('_')[1:])
+                    mask = self.previews[f'mask_{path}'] > 0
+                    pred = self.previews[name][mask].flatten()
+                    target = self.previews[f'target_{path}'][mask].flatten()
+
+                    preds.append(pred)
+                    targets.append(target)
+            preds = torch.from_numpy(np.concatenate(preds))
+            targets = torch.from_numpy(np.concatenate(targets))
+
+            metric_values = {}
+            for metric_name, metric in self.metrics.items():
+                metric.update(preds, targets)
+                metric_values[metric_name] = metric.compute()
+                metric.reset()
+        
+        # Downscale and get captions
+        captions, previews = [], []
+        for name, preview in self.previews.items():
+            preview = cv2.resize(
+                preview,
+                dsize=(0, 0),
+                fx=1 / self.preview_downscale, 
+                fy=1 / self.preview_downscale, 
+                interpolation=cv2.INTER_LINEAR, 
+            )
+            captions.append(name)
+            previews.append(preview)
+
+        return metric_values, captions, previews
     
 
 class PredictionTargetPreviewGrid(nn.Module):

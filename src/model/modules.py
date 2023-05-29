@@ -358,7 +358,7 @@ class BaseModule(LightningModule):
 
 backbone_name_to_params = {
     'swinv2': {
-        'window_size': (8, 8),
+        'window_size': (8, 8, 2),
         # TODO: SWIN v2 has patch size 4, upsampling at 
         # the last step degrades quality
         'upsampling': 4,
@@ -596,8 +596,14 @@ class SegmentationModule(BaseModule):
                 ),
                 'val_metrics': ModuleDict(
                     {
-                        'f05': BinaryFBetaScore(beta=0.5),
-                        'preview': PredictionTargetPreviewAgg(preview_downscale=32),
+                        'preview': PredictionTargetPreviewAgg(
+                            preview_downscale=32,
+                            metrics=ModuleDict(
+                                {
+                                    'f05': BinaryFBetaScore(beta=0.5),
+                                }
+                            ),
+                        ),
                     }
                 ),
             }
@@ -682,6 +688,7 @@ class SegmentationModule(BaseModule):
                         batch['image'][..., batch['image'].shape[-1] // 2],
                         y_pred, 
                         y, 
+                        mask=batch['mask_0'],
                         pathes=batch['path'],
                         indices=batch['indices'], 
                         shape_patches=batch['shape_patches'],
@@ -720,13 +727,21 @@ class SegmentationModule(BaseModule):
         for metric_name, metric in self.metrics['val_metrics'].items():
             if isinstance(metric, PredictionTargetPreviewAgg):
                 if self.current_epoch % self.hparams.log_preview_every_n_epochs == 0:
-                    captions, previews = metric.compute()
+                    metric_values, captions, previews = metric.compute()
                     self.trainer.logger.log_image(
                         key=f'v_{metric_name}',	
                         images=previews,
                         caption=captions,
                         step=self.current_epoch,
                     )
+                    for name, value in metric_values.items():
+                        self.log(
+                            f'v_{name}',
+                            value,
+                            on_step=False,
+                            on_epoch=True,
+                            prog_bar=True,
+                        )
             else:
                 self.log(
                     f'v_{metric_name}',
