@@ -685,6 +685,7 @@ class SegmentationModule(BaseModule):
                         pathes=batch['path'],
                         indices=batch['indices'], 
                         shape_patches=batch['shape_patches'],
+                        shape_original=batch['shape_original'],
                     )
             else:
                 metric.update(y_pred_masked.flatten(), y_masked.flatten())

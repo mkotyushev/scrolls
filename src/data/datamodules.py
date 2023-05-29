@@ -430,11 +430,15 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     )
                 
                 # Controls whether val dataset will be cropped to patches (crop_size)
-                # or whole volume is provided (None)
+                # with step (crop_size // 2) or whole volume is provided (None)
                 val_patch_size = \
                     None \
                     if self.hparams.resize_xy in ['resize', 'none'] else \
                     self.hparams.crop_size
+                val_patch_step = \
+                    None \
+                    if self.hparams.resize_xy in ['resize', 'none'] else \
+                    self.hparams.crop_size // 2
                 
                 self.val_dataset = InMemorySurfaceVolumeDataset(
                     volumes=volumes, 
@@ -444,6 +448,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     ink_masks=ink_masks,
                     transform=self.val_transform,
                     patch_size=val_patch_size,
+                    patch_step=val_patch_step,
                     subtracts=subtracts,
                     divides=divides,
                 )
@@ -498,8 +503,8 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 ir_images=ir_images, 
                 ink_masks=ink_masks,
                 transform=self.test_transform,
-                patch_size=self.crop_size,  # patch without overlap
-                n_repeat=1,  # no repeats for test
+                patch_size=self.hparams.crop_size,
+                patch_step=self.hparams.crop_size // 2,
                 subtracts=subtracts,
                 divides=divides,
             )

@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from collections import defaultdict
-from typing import Dict, Optional, Union
+from typing import Dict, Optional, Tuple, Union
 from lightning import Trainer
 from lightning.pytorch.cli import LightningCLI
 from lightning.pytorch.callbacks import ModelCheckpoint
@@ -14,7 +14,7 @@ from torch.utils.data import default_collate
 from weakref import proxy
 from timm.layers.format import nhwc_to, Format
 from timm.models import FeatureListNet
-from patchify import unpatchify
+from patchify import unpatchify, NonUniformStepSizeError
 from torchvision.utils import make_grid
 from scipy import interpolate, optimize
 
@@ -198,15 +198,68 @@ def get_feature_channels(model: FeatureListNet | FeatureExtractorWrapper | AcsCo
     return result
 
 
+def _unpatchify2d_avg(  # pylint: disable=too-many-locals
+    patches: np.ndarray, imsize: Tuple[int, int]
+) -> np.ndarray:
+
+    assert len(patches.shape) == 4
+
+    i_h, i_w = imsize
+    image = np.zeros(imsize, dtype=patches.dtype)
+    counts = np.zeros(imsize, dtype=np.int32)
+
+    n_h, n_w, p_h, p_w = patches.shape
+
+    s_w = 0 if n_w <= 1 else (i_w - p_w) / (n_w - 1)
+    s_h = 0 if n_h <= 1 else (i_h - p_h) / (n_h - 1)
+
+    # The step size should be same for all patches, otherwise the patches are unable
+    # to reconstruct into a image
+    if int(s_w) != s_w:
+        raise NonUniformStepSizeError(i_w, n_w, p_w, s_w)
+    if int(s_h) != s_h:
+        raise NonUniformStepSizeError(i_h, n_h, p_h, s_h)
+    s_w = int(s_w)
+    s_h = int(s_h)
+
+    i, j = 0, 0
+
+    while True:
+        i_o, j_o = i * s_h, j * s_w
+
+        image[i_o : i_o + p_h, j_o : j_o + p_w] += patches[i, j]
+        counts[i_o : i_o + p_h, j_o : j_o + p_w] += 1
+
+        if j < n_w - 1:
+            j = min((j_o + p_w) // s_w, n_w - 1)
+        elif i < n_h - 1 and j >= n_w - 1:
+            # Go to next row
+            i = min((i_o + p_h) // s_h, n_h - 1)
+            j = 0
+        elif i >= n_h - 1 and j >= n_w - 1:
+            # Finished
+            break
+        else:
+            raise RuntimeError("Unreachable")
+
+    # Average
+    counts[counts == 0] = 1
+    image /= counts
+
+    return image
+
+
 class PredictionTargetPreviewAgg(nn.Module):
     """Aggregate prediction and target patches to images with downscaling."""
     def __init__(self, preview_downscale: int = 4):
         super().__init__()
         self.preview_downscale = preview_downscale
         self.previews = {}
+        self.shapes = {}
 
     def reset(self):
         self.previews = {}
+        self.shapes = {}
 
     def update(
         self, 
@@ -216,6 +269,7 @@ class PredictionTargetPreviewAgg(nn.Module):
         indices: torch.LongTensor, 
         pathes: list[str], 
         shape_patches: torch.LongTensor,
+        shape_original: torch.LongTensor,
     ):
         # Get preview images
         input = F.interpolate(
@@ -256,30 +310,43 @@ class PredictionTargetPreviewAgg(nn.Module):
                     *patch_size,
                 ]
                 self.previews[f'input_{path}'] = torch.zeros(shape, dtype=torch.float32)
-                self.previews[f'proba_{path}'] = torch.zeros(shape, dtype=torch.uint8)
-                self.previews[f'target_{path}'] = torch.zeros(shape, dtype=torch.uint8)
+                self.previews[f'proba_{path}'] = torch.zeros(shape, dtype=torch.float32)
+                self.previews[f'target_{path}'] = torch.zeros(shape, dtype=torch.float32)
+                self.shapes[path] = []
+                for d in shape_original[i].tolist()[:2]:
+                    assert d % self.preview_downscale == 0, \
+                        f'shape_original = {shape_original[i].tolist()}, ' \
+                        f'preview_downscale = {self.preview_downscale}, ' \
+                        f'each dim size should be divisible by preview_downscale'
+                    self.shapes[path].append(d // self.preview_downscale)
 
             patch_index_w, patch_index_h = indices[i].tolist()
 
             self.previews[f'input_{path}'][patch_index_h, patch_index_w] = \
                 input[i]
             self.previews[f'proba_{path}'][patch_index_h, patch_index_w] = \
-                (probas[i] * 255).byte()
+                probas[i]
             self.previews[f'target_{path}'][patch_index_h, patch_index_w] = \
-                (target[i] * 255).byte()
+                target[i].float()
     
     def compute(self):
         captions, previews_unpatchified = [], []
         for name, preview in self.previews.items():
-            previews_unpatchified.append(
-                unpatchify(
+            path = '_'.join(name.split('_')[1:])
+            shape_original = self.shapes[path]
+            if name.startswith('proba_'):
+                # Average overlapping patches
+                preview_unpatchified = _unpatchify2d_avg(
                     preview.numpy(), 
-                    (
-                        preview.shape[0] * preview.shape[2],  # H' * H
-                        preview.shape[1] * preview.shape[3],  # W' * W
-                    )
+                    shape_original
                 )
-            )
+            else:
+                # Just unpatchify
+                preview_unpatchified = unpatchify(
+                    preview.numpy(), 
+                    shape_original
+                )
+            previews_unpatchified.append(preview_unpatchified)
             captions.append(name)
 
         return captions, previews_unpatchified

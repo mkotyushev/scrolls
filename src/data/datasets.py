@@ -1,3 +1,4 @@
+import math
 import cv2
 import numpy as np
 from tqdm import tqdm
@@ -15,14 +16,17 @@ from src.utils.utils import (
 )
 
 
-def pad_divisible_2d(image: np.ndarray, size: tuple):
+def pad_divisible_2d(image: np.ndarray, size: tuple, step: Optional[tuple] = None):
     """Pad 2D or 3D image to be divisible by size."""
     assert image.ndim in (2, 3)
     assert len(size) == image.ndim
 
+    if step is None:
+        step = size
+
     pad_width = [
-        (0, size[i] - image.shape[i] % size[i])
-        if image.shape[i] % size[i] != 0 else 
+        (0, math.ceil(image.shape[i] / step[i]) * step[i] - image.shape[i])
+        if image.shape[i] % step[i] != 0 else 
         (0, 0)
         for i in range(image.ndim)
     ]
@@ -46,6 +50,7 @@ class InMemorySurfaceVolumeDataset:
         transform: Optional[Callable] = None,
         transform_mix: Optional[Callable] = None,
         patch_size: Optional[Tuple[int, int]] = None,
+        patch_step: Optional[Tuple[int, int]] = None,
         subtracts: Optional[List[int]] = None,
         divides: Optional[List[int]] = None,
     ):
@@ -61,8 +66,12 @@ class InMemorySurfaceVolumeDataset:
         self.transform = transform
         self.transform_mix = transform_mix
         self.patch_size = to_2tuple(patch_size)
+        if patch_step is None:
+            patch_step = patch_size
+        self.patch_step = to_2tuple(patch_step)
         self.subtracts = subtracts
         self.divides = divides
+        self.shape_original = None
 
         # Patchify
         if patch_size is not None:
@@ -74,7 +83,8 @@ class InMemorySurfaceVolumeDataset:
             self.shape_patches, \
             self.indices, \
             self.subtracts, \
-            self.divides = \
+            self.divides, \
+            self.shape_original = \
                 self.patchify_data()
 
     def __len__(self) -> int:
@@ -82,8 +92,6 @@ class InMemorySurfaceVolumeDataset:
     
     def patchify_data(self):
         """Split data into patches."""
-        step = self.patch_size
-
         (
             volumes, 
             scroll_masks, 
@@ -94,35 +102,36 @@ class InMemorySurfaceVolumeDataset:
             indices,
             subtracts,
             divides,
-        ) = [], [], [], [], [], [], [], [], []
+            shape_original,
+        ) = [], [], [], [], [], [], [], [], [], []
         for i in range(len(self.volumes)):
             # Patchify
 
             # Volume
             volume_patch_size = (*self.patch_size, self.volumes[i].shape[2])
-            volume_step = (*step, self.volumes[i].shape[2])
-            volume = pad_divisible_2d(self.volumes[i], volume_patch_size)
+            volume_patch_step = (*self.patch_step, self.volumes[i].shape[2])
+            volume = pad_divisible_2d(self.volumes[i], volume_patch_size, step=volume_patch_step)
             volume_patches = patchify(
                 volume, 
                 volume_patch_size, 
-                step=volume_step
+                step=volume_patch_step
             ).squeeze(2)  # bug in patchify
 
             # Scroll mask
-            scroll_mask = pad_divisible_2d(self.scroll_masks[i], self.patch_size)
-            scroll_mask_patches = patchify(scroll_mask, self.patch_size, step=step)
+            scroll_mask = pad_divisible_2d(self.scroll_masks[i], self.patch_size, step=self.patch_step)
+            scroll_mask_patches = patchify(scroll_mask, self.patch_size, step=self.patch_step)
             
             # IR image
             ir_image_patches = None
             if self.ir_images is not None:
-                ir_image = pad_divisible_2d(self.ir_images[i], self.patch_size)
-                ir_image_patches = patchify(ir_image, self.patch_size, step=step)
+                ir_image = pad_divisible_2d(self.ir_images[i], self.patch_size, step=self.patch_step)
+                ir_image_patches = patchify(ir_image, self.patch_size, step=self.patch_step)
             
             # Ink mask
             ink_mask_patches = None
             if self.ink_masks is not None:
-                ink_mask = pad_divisible_2d(self.ink_masks[i], self.patch_size)
-                ink_mask_patches = patchify(ink_mask, self.patch_size, step=step)
+                ink_mask = pad_divisible_2d(self.ink_masks[i], self.patch_size, step=self.patch_step)
+                ink_mask_patches = patchify(ink_mask, self.patch_size, step=self.patch_step)
             
             # Pathes
             pathes_patches = np.full(
@@ -162,6 +171,12 @@ class InMemorySurfaceVolumeDataset:
                     dtype=np.float32
                 )
 
+            # Original shape
+            shape_original_patches = np.tile(
+                np.array(volume.shape)[None, None, :],
+                [*volume_patches.shape[:2], 1],
+            )
+
             # Drop empty patches (no 1s in scroll mask)
             mask = (scroll_mask_patches > 0).any(axis=(-1, -2))
             volume_patches = volume_patches[mask]
@@ -177,6 +192,7 @@ class InMemorySurfaceVolumeDataset:
                 subtracts_patches = subtracts_patches[mask]
             if divides_patches is not None:
                 divides_patches = divides_patches[mask]
+            shape_original_patches = shape_original_patches[mask]
             
             # Append
             volumes.append(volume_patches)
@@ -192,6 +208,7 @@ class InMemorySurfaceVolumeDataset:
                 subtracts.append(subtracts_patches)
             if divides_patches is not None:
                 divides.append(divides_patches)
+            shape_original.append(shape_original_patches)
 
         # Concatenate
         volumes = np.concatenate(volumes, axis=0)
@@ -215,6 +232,7 @@ class InMemorySurfaceVolumeDataset:
             divides = np.concatenate(divides, axis=0)
         else:
             divides = None
+        shape_original = np.concatenate(shape_original, axis=0)
 
         return \
             volumes, \
@@ -225,7 +243,8 @@ class InMemorySurfaceVolumeDataset:
             shape_patches, \
             indices, \
             subtracts, \
-            divides
+            divides, \
+            shape_original
 
     def get_item_single(self, idx) -> Dict[str, Any]:
         # Always here
@@ -254,6 +273,9 @@ class InMemorySurfaceVolumeDataset:
         divide = None
         if self.divides is not None:
             divide = self.divides[idx]
+        shape_original = None
+        if self.shape_original is not None:
+            shape_original = self.shape_original[idx]
 
         output = {
             'image': image,  # volume, (H, W, D)
@@ -263,6 +285,7 @@ class InMemorySurfaceVolumeDataset:
             'shape_patches': shape_patches,  # shape_patches, 2
             'subtract': subtract,  # subtract, 1
             'divide': divide,  # divide, 1
+            'shape_original': shape_original,  # shape_original, 3
         }
 
         if self.transform is not None:
