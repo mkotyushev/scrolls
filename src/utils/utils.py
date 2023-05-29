@@ -222,31 +222,17 @@ def _unpatchify2d_avg(  # pylint: disable=too-many-locals
     s_w = int(s_w)
     s_h = int(s_h)
 
-    i, j = 0, 0
-
-    while True:
-        i_o, j_o = i * s_h, j * s_w
-
-        image[i_o : i_o + p_h, j_o : j_o + p_w] += patches[i, j]
-        counts[i_o : i_o + p_h, j_o : j_o + p_w] += 1
-
-        if j < n_w - 1:
-            j = min((j_o + p_w) // s_w, n_w - 1)
-        elif i < n_h - 1 and j >= n_w - 1:
-            # Go to next row
-            i = min((i_o + p_h) // s_h, n_h - 1)
-            j = 0
-        elif i >= n_h - 1 and j >= n_w - 1:
-            # Finished
-            break
-        else:
-            raise RuntimeError("Unreachable")
+    # For each patch, add it to the image at the right location
+    for i in range(n_h):
+        for j in range(n_w):
+            image[i * s_h : i * s_h + p_h, j * s_w : j * s_w + p_w] += patches[i, j]
+            counts[i * s_h : i * s_h + p_h, j * s_w : j * s_w + p_w] += 1
 
     # Average
     counts[counts == 0] = 1
     image /= counts
 
-    return image
+    return image, counts
 
 
 class PredictionTargetPreviewAgg(nn.Module):
@@ -297,6 +283,8 @@ class PredictionTargetPreviewAgg(nn.Module):
                 self.previews[f'proba_{path}'] = np.zeros(shape, dtype=np.float32)
                 self.previews[f'target_{path}'] = np.zeros(shape, dtype=np.float32)
                 self.previews[f'mask_{path}'] = np.zeros(shape, dtype=np.float32)
+                # hack to not change dict size later, actually computed in compute()
+                self.previews[f'counts_{path}'] = None
                 self.shapes[path] = shape_original[i].tolist()[:2]
 
             patch_index_w, patch_index_h = indices[i].tolist()
@@ -317,10 +305,14 @@ class PredictionTargetPreviewAgg(nn.Module):
             shape_original = self.shapes[path]
             if name.startswith('proba_'):
                 # Average overlapping patches
-                self.previews[name] = _unpatchify2d_avg(
+                self.previews[name], counts = _unpatchify2d_avg(
                     self.previews[name], 
                     shape_original
                 )
+                self.previews[name.replace('proba', 'counts')] = counts.astype(np.float32)
+            elif name.startswith('counts_'):
+                # Do nothing
+                pass
             else:
                 # Just unpatchify
                 self.previews[name] = unpatchify(
