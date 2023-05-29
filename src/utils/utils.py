@@ -8,7 +8,7 @@ from collections import defaultdict
 from typing import Dict, Optional, Tuple, Union
 from lightning import Trainer
 from lightning.pytorch.cli import LightningCLI
-from lightning.pytorch.callbacks import ModelCheckpoint
+from lightning.pytorch.callbacks import ModelCheckpoint, BasePredictionWriter
 from lightning.pytorch.loggers import WandbLogger, TensorBoardLogger
 from torch.utils.data import default_collate
 from weakref import proxy
@@ -237,7 +237,7 @@ def _unpatchify2d_avg(  # pylint: disable=too-many-locals
 
 class PredictionTargetPreviewAgg(nn.Module):
     """Aggregate prediction and target patches to images with downscaling."""
-    def __init__(self, preview_downscale: int = 4, metrics=None):
+    def __init__(self, preview_downscale: Optional[int] = 4, metrics=None):
         super().__init__()
         self.preview_downscale = preview_downscale
         self.metrics = metrics
@@ -344,13 +344,14 @@ class PredictionTargetPreviewAgg(nn.Module):
         # Downscale and get captions
         captions, previews = [], []
         for name, preview in self.previews.items():
-            preview = cv2.resize(
-                preview,
-                dsize=(0, 0),
-                fx=1 / self.preview_downscale, 
-                fy=1 / self.preview_downscale, 
-                interpolation=cv2.INTER_LINEAR, 
-            )
+            if self.preview_downscale is not None:
+                preview = cv2.resize(
+                    preview,
+                    dsize=(0, 0),
+                    fx=1 / self.preview_downscale, 
+                    fy=1 / self.preview_downscale, 
+                    interpolation=cv2.INTER_LINEAR, 
+                )
             captions.append(name)
             previews.append(preview)
 
@@ -579,3 +580,64 @@ def scale_shift_volume(volume, z_shift, z_scale, center_crop_z):
 
     volume = volume_flattened_xy.reshape(H, W, center_crop_z)
     return volume
+
+
+# Fast run length encoding, from https://www.kaggle.com/code/hackerpoet/even-faster-run-length-encoder/script
+def rle(img):
+    flat_img = img.flatten()
+    flat_img = np.where(flat_img > 0.5, 1, 0).astype(np.uint8)
+
+    starts = np.array((flat_img[:-1] == 0) & (flat_img[1:] == 1))
+    ends = np.array((flat_img[:-1] == 1) & (flat_img[1:] == 0))
+    starts_ix = np.where(starts)[0] + 2
+    ends_ix = np.where(ends)[0] + 2
+    lengths = ends_ix - starts_ix
+
+    return starts_ix, lengths
+
+
+class PredictionWriter(BasePredictionWriter):
+    def __init__(self, output_path, write_interval):
+        super().__init__(write_interval)
+        self.output_path = output_path
+        self.aggregator = PredictionTargetPreviewAgg(
+            preview_downscale=None,
+            metrics=None,
+        )
+
+    def write_on_batch_end(
+        self, trainer, pl_module, prediction, batch_indices, batch, batch_idx, dataloader_idx
+    ):
+        y, y_pred = pl_module.extract_targets_and_probas_for_metric(prediction, batch)
+        self.aggregator.update(
+            batch['image'][..., batch['image'].shape[-1] // 2],
+            y_pred, 
+            y, 
+            mask=batch['mask_0'],
+            pathes=batch['path'],
+            indices=batch['indices'], 
+            shape_patches=batch['shape_patches'],
+            shape_original=batch['shape_original'],
+        )
+
+    def write_on_epoch_end(self, trainer, pl_module, predictions, batch_indices):
+        # Get predictions as images
+        captions, previews = self.aggregator.compute()
+        self.aggregator.reset()
+        
+        ids, probas = [], []
+        for caption, preview in zip(captions, previews):
+            if caption.startswith('proba_'):
+                ids.append(caption.split('/')[-1])
+                probas.append(preview)
+
+        # Sort by id
+        ids, probas = zip(*sorted(zip(ids, probas), key=lambda x: int(x[0])))
+        
+        # Save
+        with open(self.output_path, 'w') as f:
+            print("Id,Predicted\n", file=f)
+            for i, (id_, proba) in enumerate(zip(ids, probas)):
+                starts_ix, lengths = rle(proba)
+                inklabels_rle = " ".join(map(str, sum(zip(starts_ix, lengths), ())))
+                print(f"{id_}," + inklabels_rle, file=f, end="\n" if i != len(ids) - 1 else "")
