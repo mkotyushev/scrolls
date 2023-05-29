@@ -65,9 +65,9 @@ class InMemorySurfaceVolumeDataset:
 
         self.transform = transform
         self.transform_mix = transform_mix
-        self.patch_size = to_2tuple(patch_size)
         if patch_step is None:
             patch_step = patch_size
+        self.patch_size = to_2tuple(patch_size)
         self.patch_step = to_2tuple(patch_step)
         self.subtracts = subtracts
         self.divides = divides
