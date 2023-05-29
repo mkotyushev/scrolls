@@ -236,7 +236,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         rotate_limit_degrees_xy = 45
 
         if self.hparams.resize_xy == 'crop':
-            scale_z_max = 1.5
+            scale_z_max = 2.0
 
             # Crop to crop_size & crop_size_z
             base_size = self.hparams.crop_size
