@@ -320,6 +320,12 @@ class PredictionTargetPreviewAgg(nn.Module):
                     shape_original
                 )
 
+        # Zero probas out where mask is zero
+        for name in self.previews:
+            if name.startswith('proba_'):
+                mask = self.previews[name.replace('proba', 'mask')] == 0
+                self.previews[name][mask] = 0
+
         # Compute metrics if available
         if self.metrics is not None:
             preds, targets = [], []
