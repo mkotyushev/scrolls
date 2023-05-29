@@ -699,7 +699,7 @@ class Tta:
                 TtaRotate90(3),
             ],
             [None] + [
-                TtaRotate(limit_degrees=90) 
+                TtaRotate(limit_degrees=45) 
                 for _ in range(n_random_replays)
             ],
         ]
