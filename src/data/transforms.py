@@ -1,3 +1,4 @@
+import albumentations as A 
 import logging
 import math
 import random
@@ -519,3 +520,69 @@ class ToFloatMasks:
         return kwargs
 
 
+def invert_replay(replay):
+    inverse_transforms = []
+    for transform in replay['transforms']:
+        # Skip transforms that were not applied
+        # or not applicable to predictions
+        if not transform['applied']:
+            continue
+
+        # Invert transform params
+        if transform['__class_fullname__'] == 'Rotate':
+            transform['params']['angle'] = -transform['params']['angle']
+        elif transform['__class_fullname__'] == 'HorizontalFlip':
+            pass  # Apply same transform
+        elif transform['__class_fullname__'] == 'VerticalFlip':
+            pass  # Apply same transform
+        else:
+            raise ValueError(
+                f"Unsupported transform: {transform['__class_fullname__']}"
+            )
+        
+        inverse_transforms.append(transform)
+    
+    # Reverse transforms order
+    replay['transforms'] = inverse_transforms[::-1]
+    
+    return replay
+
+
+class Tta:
+    def __init__(self, model, n_replays=10):
+        self.model = model
+        self.n_replays = n_replays
+        self.transform = A.ReplayCompose(
+            [
+                A.HorizontalFlip(p=0.5),
+                A.VerticalFlip(p=0.5),
+                A.Rotate(
+                    limit=90, 
+                    p=0.5, 
+                    border_mode=cv2.BORDER_CONSTANT, 
+                    value=np.nan,
+                    mask_value=np.nan,
+                ),
+            ]
+        )
+
+    def __call__(self, image):
+        preds = []
+
+        # Predict without TTA
+        pred = self.model.predict(image)
+        preds.append(pred)
+
+        # Apply TTA
+        for _ in range(self.n_replays):
+            replay = self.transform(image=image)
+            pred = self.model.predict(replay['image']).cpu().numpy()
+            pred = A.ReplayCompose.replay(invert_replay(replay), image=pred)
+            pred = torch.from_numpy(pred)
+            preds.append(pred)
+        
+        # Average predictions, ignoring NaNs
+        preds = torch.stack(preds, dim=0)
+        preds = torch.nanmean(preds, dim=0)
+        
+        return preds

@@ -13,6 +13,7 @@ from torchmetrics.classification import BinaryFBetaScore
 from lightning.pytorch.utilities import grad_norm
 from unittest.mock import patch
 from acsconv.operators import ACSConv
+from src.data.transforms import Tta
 
 from src.model.smp import Unet, patch_first_conv
 from src.model.swin_transformer_v2_pseudo_3d import (
@@ -518,6 +519,7 @@ class SegmentationModule(BaseModule):
         backbone_name: str = 'swinv2_tiny_window8_256.ms_in1k',
         in_channels: int = 6,
         log_preview_every_n_epochs: int = 10,
+        tta_n_replays: int = 0,
         label_smoothing: float = 0.0,
         pos_weight: float = 1.0,
         optimizer_init: Optional[Dict[str, Any]] = None,
@@ -556,9 +558,11 @@ class SegmentationModule(BaseModule):
         else:
             self.unfreeze_only_selected()
 
+        self.tta = Tta(model=self.model, n_replays=tta_n_replays)
+
     def compute_loss_preds(self, batch, *args, **kwargs):
         """Compute losses and predictions."""
-        preds = self.model(batch['image'])
+        preds = self.tta(batch['image'])
 
         # 3d_acs_weights outputs probabilities, not logits
         weight = torch.where(
