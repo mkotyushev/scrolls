@@ -11,6 +11,7 @@ from lightning import LightningDataModule
 from torch.utils.data import DataLoader
 from albumentations.pytorch import ToTensorV2
 from tqdm import tqdm
+from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 
 from src.data.datasets import InMemorySurfaceVolumeDataset
 from src.data.transforms import (
@@ -223,8 +224,8 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         logger.info(f'train_dataset_scale: {self.train_dataset_scale}')
 
         # Imagenets mean and std
-        self.train_volume_mean = sum((0.485, 0.456, 0.406)) / 3
-        self.train_volume_std = sum((0.229, 0.224, 0.225)) / 3
+        self.train_volume_mean = sum(IMAGENET_DEFAULT_MEAN) / 3
+        self.train_volume_std = sum(IMAGENET_DEFAULT_STD) / 3
 
         self.collate_fn = surface_volume_collate_fn
 

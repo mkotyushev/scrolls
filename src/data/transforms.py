@@ -11,6 +11,7 @@ from albumentations.augmentations.crops import functional as F_crops
 from albumentations.augmentations.geometric import functional as F_geometric
 from albumentations.augmentations import functional as F
 from torchvision.transforms import functional as F_torchvision
+from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 
 
 logger = logging.getLogger(__name__)
@@ -636,8 +637,9 @@ class TtaRotate90:
 
 
 class TtaRotate:
-    def __init__(self, limit_degrees: int = 90) -> None:
+    def __init__(self, limit_degrees: int = 90, fill_value=0.0) -> None:
         self.limit_degrees = limit_degrees
+        self.fill_value = fill_value
         self.angle = None
 
     @staticmethod
@@ -646,7 +648,7 @@ class TtaRotate:
         # (N, C, H, W, D) -> (N, C, D, H, W)
         batch = batch.permute(0, 1, 4, 2, 3)
         # (N, C, D, H, W) -> (N, C * D, H, W)
-        batch = batch.reshape(batch.shape[0], batch.shape[1] * batch.shape[2], batch.shape[3], batch.shape[4])
+        batch = batch.reshape(N, C * D, H, W)
         batch = F_torchvision.rotate(
             batch,
             angle,
@@ -664,7 +666,7 @@ class TtaRotate:
         assert self.angle is None, "TtaRotate should be applied only once."
         # (N, C, H, W, D)
         self.angle = random.randint(-self.limit_degrees, self.limit_degrees) 
-        return TtaRotate._rotate(batch, self.angle, fill=0.0)
+        return TtaRotate._rotate(batch, self.angle, fill=self.fill_value)
 
     def apply_inverse_to_pred(self, batch_pred: torch.Tensor) -> torch.Tensor:
         assert self.angle is not None, "TtaRotate should be applied before TtaRotate.apply_inverse_to_pred."
@@ -682,6 +684,10 @@ class TtaRotate:
 class Tta:
     def __init__(self, model, n_random_replays=1):
         self.model = model
+        
+        # Imagenet normalization during training is assumed
+        fill_value = (0.0 - sum(IMAGENET_DEFAULT_MEAN) / 3) / (sum(IMAGENET_DEFAULT_STD) / 3)
+        
         # All possible combinations of
         # - flips
         # - rotations on 90 degrees
@@ -699,7 +705,7 @@ class Tta:
                 TtaRotate90(3),
             ],
             [None] + [
-                TtaRotate(limit_degrees=45) 
+                TtaRotate(limit_degrees=45, fill_value=fill_value) 
                 for _ in range(n_random_replays)
             ],
         ]
