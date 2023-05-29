@@ -67,7 +67,7 @@ model:
     backbone_name: convnextv2_large.fcmae_ft_in22k_in1k_384
     log_preview_every_n_epochs: 5
     tta_each_n_epochs: 5
-    tta_n_replays: 0
+    tta_n_random_replays: 0
     pos_weight: 0.5
     label_smoothing: 0.0
     optimizer_init: 
