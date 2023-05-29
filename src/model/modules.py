@@ -55,6 +55,8 @@ class BaseModule(LightningModule):
         self.metrics = None
         self.cat_metrics = None
 
+        self.tta = None
+
         self.configure_metrics()
 
     def compute_loss_preds(self, batch, *args, **kwargs):
@@ -172,7 +174,7 @@ class BaseModule(LightningModule):
         return total_loss
     
     def validation_step(self, batch: Tensor, batch_idx: int, dataloader_idx: Optional[int] = None, **kwargs) -> Tensor:
-        total_loss, losses, preds = self.compute_loss_preds(batch, tta=True, **kwargs)
+        total_loss, losses, preds = self.compute_loss_preds(batch, tta=self.tta is not None, **kwargs)
         assert dataloader_idx is None or dataloader_idx == 0, 'Only one val dataloader is supported.'
         for loss_name, loss in losses.items():
             self.log(
@@ -188,7 +190,7 @@ class BaseModule(LightningModule):
         return total_loss
 
     def predict_step(self, batch: Tensor, batch_idx: int, dataloader_idx: Optional[int] = None, **kwargs) -> Tensor:
-        _, _, preds = self.compute_loss_preds(batch, tta=True, **kwargs)
+        _, _, preds = self.compute_loss_preds(batch, tta=self.tta is not None, **kwargs)
         return preds
 
     def log_metrics_and_reset(
@@ -519,7 +521,8 @@ class SegmentationModule(BaseModule):
         backbone_name: str = 'swinv2_tiny_window8_256.ms_in1k',
         in_channels: int = 6,
         log_preview_every_n_epochs: int = 10,
-        tta_n_replays: int = 0,
+        tta_n_random_replays: int = 0,
+        tta: bool = True,
         label_smoothing: float = 0.0,
         pos_weight: float = 1.0,
         optimizer_init: Optional[Dict[str, Any]] = None,
@@ -558,11 +561,12 @@ class SegmentationModule(BaseModule):
         else:
             self.unfreeze_only_selected()
 
-        self.tta = Tta(model=self.model, n_replays=tta_n_replays)
+        self.tta = None if not tta else Tta(model=self.model, n_random_replays=tta_n_random_replays)
 
     def compute_loss_preds(self, batch, tta=False, *args, **kwargs):
         """Compute losses and predictions."""
         if tta:
+            assert self.tta is not None, 'tta is not initialized.'
             preds = self.tta(batch['image'])
         else:
             preds = self.model(batch['image'])
@@ -664,7 +668,7 @@ class SegmentationModule(BaseModule):
         return total_loss
     
     def validation_step(self, batch: Tensor, batch_idx: int, dataloader_idx: Optional[int] = None, **kwargs) -> Tensor:
-        total_loss, losses, preds = self.compute_loss_preds(batch, tta=True, **kwargs)
+        total_loss, losses, preds = self.compute_loss_preds(batch, tta=self.tta is not None, **kwargs)
         assert dataloader_idx is None or dataloader_idx == 0, 'Only one val dataloader is supported.'
         for loss_name, loss in losses.items():
             self.log(
@@ -697,7 +701,7 @@ class SegmentationModule(BaseModule):
         return total_loss
 
     def predict_step(self, batch: Tensor, batch_idx: int, dataloader_idx: Optional[int] = None, **kwargs) -> Tensor:
-        _, _, preds = self.compute_loss_preds(batch, tta=True, **kwargs)
+        _, _, preds = self.compute_loss_preds(batch, tta=self.tta is not None, **kwargs)
         return preds
 
     def on_train_epoch_end(self) -> None:

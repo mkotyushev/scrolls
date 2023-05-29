@@ -680,7 +680,7 @@ class TtaRotate:
 
 
 class Tta:
-    def __init__(self, model, n_replays=1):
+    def __init__(self, model, n_random_replays=1):
         self.model = model
         # All possible combinations of
         # - flips
@@ -700,7 +700,7 @@ class Tta:
             ],
             [None] + [
                 TtaRotate(limit_degrees=90) 
-                for _ in range(n_replays)
+                for _ in range(n_random_replays)
             ],
         ]
 
