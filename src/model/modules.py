@@ -521,8 +521,8 @@ class SegmentationModule(BaseModule):
         backbone_name: str = 'swinv2_tiny_window8_256.ms_in1k',
         in_channels: int = 6,
         log_preview_every_n_epochs: int = 10,
+        tta_each_n_epochs: int = 10,
         tta_n_random_replays: int = 0,
-        tta: bool = True,
         label_smoothing: float = 0.0,
         pos_weight: float = 1.0,
         optimizer_init: Optional[Dict[str, Any]] = None,
@@ -561,7 +561,12 @@ class SegmentationModule(BaseModule):
         else:
             self.unfreeze_only_selected()
 
-        self.tta = None if not tta else Tta(model=self.model, n_random_replays=tta_n_random_replays)
+        assert tta_each_n_epochs != 0, \
+            'tta_each_n_epochs == 0 is not supported, use tta_each_n_epochs == -1 to disable TTA.'
+        self.tta = \
+            None \
+            if tta_each_n_epochs < 0 else \
+            Tta(model=self.model, n_random_replays=tta_n_random_replays)
 
     def compute_loss_preds(self, batch, tta=False, *args, **kwargs):
         """Compute losses and predictions."""
@@ -668,11 +673,13 @@ class SegmentationModule(BaseModule):
         return total_loss
     
     def validation_step(self, batch: Tensor, batch_idx: int, dataloader_idx: Optional[int] = None, **kwargs) -> Tensor:
-        total_loss, losses, preds = self.compute_loss_preds(batch, tta=self.tta is not None, **kwargs)
+        tta = self.tta is not None and self.current_epoch % self.hparams.tta_each_n_epochs == 0
+        loss_prefix = 'vl' if not tta else 'vl_tta'
+        total_loss, losses, preds = self.compute_loss_preds(batch, tta=tta, **kwargs)
         assert dataloader_idx is None or dataloader_idx == 0, 'Only one val dataloader is supported.'
         for loss_name, loss in losses.items():
             self.log(
-                f'vl_{loss_name}', 
+                f'{loss_prefix}_{loss_name}', 
                 loss,
                 on_step=False,
                 on_epoch=True,
@@ -726,19 +733,21 @@ class SegmentationModule(BaseModule):
         if self.metrics is None:
             return
 
+        tta = self.tta is not None and self.current_epoch % self.hparams.tta_each_n_epochs == 0
+        metric_prefix = 'v' if not tta else 'v_tta'
         for metric_name, metric in self.metrics['val_metrics'].items():
             if isinstance(metric, PredictionTargetPreviewAgg):
                 metric_values, captions, previews = metric.compute()
                 if self.current_epoch % self.hparams.log_preview_every_n_epochs == 0:
                     self.trainer.logger.log_image(
-                        key=f'v_{metric_name}',	
+                        key=f'{metric_prefix}_{metric_name}',	
                         images=previews,
                         caption=captions,
                         step=self.current_epoch,
                     )
                 for name, value in metric_values.items():
                     self.log(
-                        f'v_{name}',
+                        f'{metric_prefix}_{name}',
                         value,
                         on_step=False,
                         on_epoch=True,
@@ -746,7 +755,7 @@ class SegmentationModule(BaseModule):
                     )
             else:
                 self.log(
-                    f'v_{metric_name}',
+                    f'{metric_prefix}_{metric_name}',
                     metric.compute(),
                     on_step=False,
                     on_epoch=True,
