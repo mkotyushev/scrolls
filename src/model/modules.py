@@ -625,13 +625,12 @@ class SegmentationModule(BaseModule):
         y, y_pred = self.extract_targets_and_probas_for_metric(preds, batch)
         for metric_name, metric in self.metrics['train_metrics'].items():
             if isinstance(metric, PredictionTargetPreviewGrid):  # Epoch-level
-                if self.current_epoch % self.hparams.log_preview_every_n_epochs == 0:
-                    metric.update(
-                        batch['image'][..., batch['image'].shape[-1] // 2],
-                        y_pred, 
-                        y, 
-                        pathes=batch['path'],
-                    )
+                metric.update(
+                    batch['image'][..., batch['image'].shape[-1] // 2],
+                    y_pred, 
+                    y, 
+                    pathes=batch['path'],
+                )
             else:
                 metric.update(y_pred.flatten(), y.flatten())
                 self.log(
@@ -683,17 +682,16 @@ class SegmentationModule(BaseModule):
         y_pred_masked = y_pred.flatten()[batch['mask_0'].flatten() == 1]
         for metric in self.metrics['val_metrics'].values():
             if isinstance(metric, PredictionTargetPreviewAgg) and batch['indices'] is not None:
-                if self.current_epoch % self.hparams.log_preview_every_n_epochs == 0:
-                    metric.update(
-                        batch['image'][..., batch['image'].shape[-1] // 2],
-                        y_pred, 
-                        y, 
-                        mask=batch['mask_0'],
-                        pathes=batch['path'],
-                        indices=batch['indices'], 
-                        shape_patches=batch['shape_patches'],
-                        shape_original=batch['shape_original'],
-                    )
+                metric.update(
+                    batch['image'][..., batch['image'].shape[-1] // 2],
+                    y_pred, 
+                    y, 
+                    mask=batch['mask_0'],
+                    pathes=batch['path'],
+                    indices=batch['indices'], 
+                    shape_patches=batch['shape_patches'],
+                    shape_original=batch['shape_original'],
+                )
             else:
                 metric.update(y_pred_masked.flatten(), y_masked.flatten())
         return total_loss
@@ -709,15 +707,15 @@ class SegmentationModule(BaseModule):
 
         for metric_name, metric in self.metrics['train_metrics'].items():
             if isinstance(metric, PredictionTargetPreviewGrid):
+                captions, previews = metric.compute()
+                metric.reset()
                 if self.current_epoch % self.hparams.log_preview_every_n_epochs == 0:
-                    captions, previews = metric.compute()
                     self.trainer.logger.log_image(
                         key=f't_{metric_name}',	
                         images=previews,
                         caption=captions,
                         step=self.current_epoch,
                     )
-                    metric.reset()
 
     def on_validation_epoch_end(self) -> None:
         """Called in the validation loop at the very end of the epoch."""
@@ -726,22 +724,22 @@ class SegmentationModule(BaseModule):
 
         for metric_name, metric in self.metrics['val_metrics'].items():
             if isinstance(metric, PredictionTargetPreviewAgg):
+                metric_values, captions, previews = metric.compute()
                 if self.current_epoch % self.hparams.log_preview_every_n_epochs == 0:
-                    metric_values, captions, previews = metric.compute()
                     self.trainer.logger.log_image(
                         key=f'v_{metric_name}',	
                         images=previews,
                         caption=captions,
                         step=self.current_epoch,
                     )
-                    for name, value in metric_values.items():
-                        self.log(
-                            f'v_{name}',
-                            value,
-                            on_step=False,
-                            on_epoch=True,
-                            prog_bar=True,
-                        )
+                for name, value in metric_values.items():
+                    self.log(
+                        f'v_{name}',
+                        value,
+                        on_step=False,
+                        on_epoch=True,
+                        prog_bar=True,
+                    )
             else:
                 self.log(
                     f'v_{metric_name}',
