@@ -608,7 +608,7 @@ class TtaHorizontalFlip:
     
     def apply_inverse_to_pred(self, batch_pred: torch.Tensor) -> torch.Tensor:
         # (N, C = 1, H, W)
-        return batch_pred.flip(2)
+        return batch_pred.flip(3)
 
 
 class TtaVerticalFlip:
@@ -618,7 +618,7 @@ class TtaVerticalFlip:
     
     def apply_inverse_to_pred(self, batch_pred: torch.Tensor) -> torch.Tensor:
         # (N, C = 1, H, W)
-        return batch_pred.flip(1)
+        return batch_pred.flip(2)
 
 
 class TtaRotate90:
