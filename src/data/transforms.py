@@ -1,4 +1,4 @@
-import albumentations as A 
+import itertools
 import logging
 import math
 import random
@@ -10,6 +10,7 @@ from albumentations import Rotate, DualTransform, ImageOnlyTransform, Resize, Ra
 from albumentations.augmentations.crops import functional as F_crops
 from albumentations.augmentations.geometric import functional as F_geometric
 from albumentations.augmentations import functional as F
+from torchvision.transforms import functional as F_torchvision
 
 
 logger = logging.getLogger(__name__)
@@ -600,67 +601,135 @@ class EnlargePositive:
         return kwargs
 
 
-def invert_replay(replay):
-    inverse_transforms = []
-    for transform in replay['transforms']:
-        # Skip transforms that were not applied
-        # or not applicable to predictions
-        if not transform['applied']:
-            continue
+class TtaHorizontalFlip:
+    def apply(self, batch: torch.Tensor) -> torch.Tensor:
+        # (N, C, H, W, D)
+        return batch.flip(3)
+    
+    def apply_inverse_to_pred(self, batch_pred: torch.Tensor) -> torch.Tensor:
+        # (N, C = 1, H, W)
+        return batch_pred.flip(2)
 
-        # Invert transform params
-        if transform['__class_fullname__'] == 'Rotate':
-            transform['params']['angle'] = -transform['params']['angle']
-        elif transform['__class_fullname__'] == 'HorizontalFlip':
-            pass  # Apply same transform
-        elif transform['__class_fullname__'] == 'VerticalFlip':
-            pass  # Apply same transform
-        else:
-            raise ValueError(
-                f"Unsupported transform: {transform['__class_fullname__']}"
-            )
-        
-        inverse_transforms.append(transform)
+
+class TtaVerticalFlip:
+    def apply(self, batch: torch.Tensor) -> torch.Tensor:
+        # (N, C, H, W, D)
+        return batch.flip(2)
     
-    # Reverse transforms order
-    replay['transforms'] = inverse_transforms[::-1]
+    def apply_inverse_to_pred(self, batch_pred: torch.Tensor) -> torch.Tensor:
+        # (N, C = 1, H, W)
+        return batch_pred.flip(1)
+
+
+class TtaRotate90:
+    def __init__(self, n_rot) -> None:
+        assert n_rot % 4 != 0, f"n_rot should not be divisible by 4. Got {n_rot}"
+        self.n_rot = n_rot % 4
     
-    return replay
+    def apply(self, batch: torch.Tensor) -> torch.Tensor:
+        # (N, C, H, W, D)
+        return batch.rot90(self.n_rot, (2, 3))
+
+    def apply_inverse_to_pred(self, batch_pred: torch.Tensor) -> torch.Tensor:
+        # (N, C = 1, H, W)
+        return batch_pred.rot90(-self.n_rot, (2, 3))
+
+
+class TtaRotate:
+    def __init__(self, limit_degrees: int = 90) -> None:
+        self.limit_degrees = limit_degrees
+        self.angle = None
+
+    @staticmethod
+    def _rotate(batch: torch.Tensor, angle: int, fill: float=0) -> torch.Tensor:
+        N, C, H, W, D = batch.shape
+        # (N, C, H, W, D) -> (N, C, D, H, W)
+        batch = batch.permute(0, 1, 4, 2, 3)
+        # (N, C, D, H, W) -> (N, C * D, H, W)
+        batch = batch.reshape(batch.shape[0], batch.shape[1] * batch.shape[2], batch.shape[3], batch.shape[4])
+        batch = F_torchvision.rotate(
+            batch,
+            angle,
+            interpolation=F_torchvision.InterpolationMode.BILINEAR,
+            expand=False,
+            fill=fill,
+        )
+        # (N, C * D, H, W) -> (N, C, D, H, W)
+        batch = batch.reshape(N, C, D, H, W)
+        # (N, C, D, H, W) -> (N, C, H, W, D)
+        batch = batch.permute(0, 1, 3, 4, 2)
+        return batch
+
+    def apply(self, batch: torch.Tensor) -> torch.Tensor:
+        assert self.angle is None, "TtaRotate should be applied only once."
+        # (N, C, H, W, D)
+        self.angle = random.randint(-self.limit_degrees, self.limit_degrees) 
+        return TtaRotate._rotate(batch, self.angle, fill=0.0)
+
+    def apply_inverse_to_pred(self, batch_pred: torch.Tensor) -> torch.Tensor:
+        assert self.angle is not None, "TtaRotate should be applied before TtaRotate.apply_inverse_to_pred."
+        # (N, C = 1, H, W) -> (N, C = 1, H, W, D = 1)
+        batch_pred = batch_pred.unsqueeze(-1)
+        # Fill with NaNs to ignore them in averaging
+        batch_pred = TtaRotate._rotate(batch_pred, -self.angle, fill=torch.nan)
+        # (N, C = 1, H, W, D = 1) -> (N, C = 1, H, W)
+        batch_pred = batch_pred.squeeze(-1)
+        self.angle = None
+        return batch_pred
+
 
 
 class Tta:
-    def __init__(self, model, n_replays=10):
+    def __init__(self, model, n_replays=1):
         self.model = model
-        self.n_replays = n_replays
-        self.transform = A.ReplayCompose(
+        # All possible combinations of
+        # - flips
+        # - rotations on 90 degrees
+        #And 
+        self.transforms = itertools.product(
             [
-                A.HorizontalFlip(p=0.5),
-                A.VerticalFlip(p=0.5),
-                A.Rotate(
-                    limit=90, 
-                    p=0.5, 
-                    border_mode=cv2.BORDER_CONSTANT, 
-                    value=np.nan,
-                    mask_value=np.nan,
-                ),
-            ]
+                None,
+                TtaHorizontalFlip(),
+                TtaVerticalFlip(),
+            ],
+            [
+                None,
+                TtaRotate90(1),
+                TtaRotate90(2),
+                TtaRotate90(3),
+            ],
+            [
+                TtaRotate(limit_degrees=90) 
+                for _ in range(n_replays)
+            ],
         )
 
-    def __call__(self, image):
+    def __call__(self, batch: torch.Tensor) -> torch.Tensor:
         preds = []
 
         # Predict without TTA
-        pred = self.model(image)
+        pred = self.model(batch)
         preds.append(pred)
 
         # Apply TTA
-        for _ in range(self.n_replays):
-            replay = self.transform(image=image)
-            pred = self.model(replay['image']).cpu().numpy()
-            pred = A.ReplayCompose.replay(invert_replay(replay), image=pred)
-            pred = torch.from_numpy(pred)
-            preds.append(pred)
-        
+        for transform_chain in self.transforms:
+            # Direct transform
+            batch_aug = batch.clone()
+            for transform in transform_chain:
+                if transform is not None:
+                    batch_aug = transform.apply(batch)
+            
+            # Predict
+            pred_aug = self.model(batch_aug)
+
+            # Inverse transform
+            # Note: order of transforms is reversed
+            for transform in reversed(transform_chain):
+                if transform is not None:
+                    pred_aug = transform.apply_inverse_to_pred(pred_aug)
+            
+            preds.append(pred_aug)
+
         # Average predictions, ignoring NaNs
         preds = torch.stack(preds, dim=0)
         preds = torch.nanmean(preds, dim=0)
