@@ -685,8 +685,8 @@ class Tta:
         # All possible combinations of
         # - flips
         # - rotations on 90 degrees
-        #And 
-        self.transforms = itertools.product(
+        # - n_replays rotations on random angle
+        self.transforms = [
             [
                 None,
                 TtaHorizontalFlip(),
@@ -698,21 +698,17 @@ class Tta:
                 TtaRotate90(2),
                 TtaRotate90(3),
             ],
-            [
+            [None] + [
                 TtaRotate(limit_degrees=90) 
                 for _ in range(n_replays)
             ],
-        )
+        ]
 
     def __call__(self, batch: torch.Tensor) -> torch.Tensor:
         preds = []
 
-        # Predict without TTA
-        pred = self.model(batch)
-        preds.append(pred)
-
         # Apply TTA
-        for transform_chain in self.transforms:
+        for transform_chain in itertools.product(*self.transforms):
             # Direct transform
             batch_aug = batch.clone()
             for transform in transform_chain:
