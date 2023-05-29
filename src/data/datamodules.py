@@ -305,7 +305,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     ], 
                     p=0.4
                 ),
-                A.GridDistortion(num_steps=5, distort_limit=0.3, p=0.5),
+                # A.GridDistortion(num_steps=5, distort_limit=0.3, p=0.5),
                 A.Normalize(
                     max_pixel_value=MAX_PIXEL_VALUE,
                     mean=self.train_volume_mean,
