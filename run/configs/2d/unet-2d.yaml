@@ -66,6 +66,8 @@ model:
     in_channels: 6
     backbone_name: null
     log_preview_every_n_epochs: 5
+    tta: true
+    tta_n_replays: 0
     pos_weight: 0.5
     label_smoothing: 0.0
     optimizer_init: 

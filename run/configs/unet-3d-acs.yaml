@@ -66,6 +66,8 @@ model:
     in_channels: 32
     backbone_name: convnextv2_large.fcmae_ft_in22k_in1k_384
     log_preview_every_n_epochs: 5
+    tta: true
+    tta_n_replays: 0
     pos_weight: 0.5
     label_smoothing: 0.0
     optimizer_init: 
