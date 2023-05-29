@@ -3,6 +3,7 @@ import timm
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from copy import deepcopy
 from torch.nn import ModuleDict
 from lightning import LightningModule
 from typing import Any, Dict, Literal, Optional, Union
@@ -151,7 +152,7 @@ class BaseModule(LightningModule):
                 prog_bar=True,
                 batch_size=batch[0].shape[0],
             )
-        self.update_metrics('train_metrics', preds, batch)
+        self.update_metrics('t_metrics', preds, batch)
 
         # Handle nan in loss
         has_nan = False
@@ -186,7 +187,7 @@ class BaseModule(LightningModule):
                 add_dataloader_idx=False,
                 batch_size=batch[0].shape[0],
             )
-        self.update_metrics('val_metrics', preds, batch)
+        self.update_metrics('v_metrics', preds, batch)
         return total_loss
 
     def predict_step(self, batch: Tensor, batch_idx: int, dataloader_idx: Optional[int] = None, **kwargs) -> Tensor:
@@ -204,9 +205,9 @@ class BaseModule(LightningModule):
         # Get metric span: train or val
         span = None
         if prefix == 'train':
-            span = 'train_metrics'
+            span = 't_metrics'
         elif prefix in ['val', 'val_ds']:
-            span = 'val_metrics'
+            span = 'v_metrics'
         
         # Get concatenated preds and targets
         # and reset them
@@ -596,25 +597,27 @@ class SegmentationModule(BaseModule):
 
     def configure_metrics(self):
         """Configure task-specific metrics."""
+        val_metrics = ModuleDict(
+            {
+                'preview': PredictionTargetPreviewAgg(
+                    preview_downscale=32,
+                    metrics=ModuleDict(
+                        {
+                            'f05': BinaryFBetaScore(beta=0.5),
+                        }
+                    ),
+                ),
+            }
+        )
         self.metrics = ModuleDict(
             {
-                'train_metrics': ModuleDict(
+                't_metrics': ModuleDict(
                     {
                         'preview': PredictionTargetPreviewGrid(preview_downscale=16, n_images=9),
                     }
                 ),
-                'val_metrics': ModuleDict(
-                    {
-                        'preview': PredictionTargetPreviewAgg(
-                            preview_downscale=32,
-                            metrics=ModuleDict(
-                                {
-                                    'f05': BinaryFBetaScore(beta=0.5),
-                                }
-                            ),
-                        ),
-                    }
-                ),
+                'v_metrics': deepcopy(val_metrics),
+                'v_tta_metrics': deepcopy(val_metrics),
             }
         )
         self.cat_metrics = None
@@ -632,7 +635,7 @@ class SegmentationModule(BaseModule):
             )
         
         y, y_pred = self.extract_targets_and_probas_for_metric(preds, batch)
-        for metric_name, metric in self.metrics['train_metrics'].items():
+        for metric_name, metric in self.metrics['t_metrics'].items():
             if isinstance(metric, PredictionTargetPreviewGrid):  # Epoch-level
                 metric.update(
                     batch['image'][..., batch['image'].shape[-1] // 2],
@@ -672,8 +675,7 @@ class SegmentationModule(BaseModule):
         
         return total_loss
     
-    def validation_step(self, batch: Tensor, batch_idx: int, dataloader_idx: Optional[int] = None, **kwargs) -> Tensor:
-        tta = self.tta is not None and self.current_epoch % self.hparams.tta_each_n_epochs == 0
+    def _validation_step(self, batch: Tensor, batch_idx: int, dataloader_idx: Optional[int] = None, tta=False, **kwargs) -> Tensor:
         loss_prefix = 'vl' if not tta else 'vl_tta'
         total_loss, losses, preds = self.compute_loss_preds(batch, tta=tta, **kwargs)
         assert dataloader_idx is None or dataloader_idx == 0, 'Only one val dataloader is supported.'
@@ -688,10 +690,11 @@ class SegmentationModule(BaseModule):
                 batch_size=batch['image'].shape[0],
             )
         
+        span_prefix = 'v' if not tta else 'v_tta'
         y, y_pred = self.extract_targets_and_probas_for_metric(preds, batch)
         y_masked = y.flatten()[batch['mask_0'].flatten() == 1]
         y_pred_masked = y_pred.flatten()[batch['mask_0'].flatten() == 1]
-        for metric in self.metrics['val_metrics'].values():
+        for metric in self.metrics[f'{span_prefix}_metrics'].values():
             if isinstance(metric, PredictionTargetPreviewAgg) and batch['indices'] is not None:
                 metric.update(
                     batch['image'][..., batch['image'].shape[-1] // 2],
@@ -706,6 +709,13 @@ class SegmentationModule(BaseModule):
             else:
                 metric.update(y_pred_masked.flatten(), y_masked.flatten())
         return total_loss
+    
+    def validation_step(self, batch: Tensor, batch_idx: int, dataloader_idx: Optional[int] = None, **kwargs) -> Tensor:
+        tta = self.tta is not None and self.current_epoch % self.hparams.tta_each_n_epochs == 0
+        result = self._validation_step(batch, batch_idx, dataloader_idx, tta=False, **kwargs)
+        if tta:
+            self._validation_step(batch, batch_idx, dataloader_idx, tta=True, **kwargs)
+        return result
 
     def predict_step(self, batch: Tensor, batch_idx: int, dataloader_idx: Optional[int] = None, **kwargs) -> Tensor:
         _, _, preds = self.compute_loss_preds(batch, tta=self.tta is not None, **kwargs)
@@ -716,7 +726,7 @@ class SegmentationModule(BaseModule):
         if self.metrics is None:
             return
 
-        for metric_name, metric in self.metrics['train_metrics'].items():
+        for metric_name, metric in self.metrics['t_metrics'].items():
             if isinstance(metric, PredictionTargetPreviewGrid):
                 captions, previews = metric.compute()
                 metric.reset()
@@ -735,7 +745,8 @@ class SegmentationModule(BaseModule):
 
         tta = self.tta is not None and self.current_epoch % self.hparams.tta_each_n_epochs == 0
         metric_prefix = 'v' if not tta else 'v_tta'
-        for metric_name, metric in self.metrics['val_metrics'].items():
+        span_prefix = 'v' if not tta else 'v_tta'
+        for metric_name, metric in self.metrics[f'{span_prefix}_metrics'].items():
             if isinstance(metric, PredictionTargetPreviewAgg):
                 metric_values, captions, previews = metric.compute()
                 if self.current_epoch % self.hparams.log_preview_every_n_epochs == 0:
