@@ -395,7 +395,14 @@ backbone_name_to_params = {
 }
 
 
-def build_segmentation(backbone_name, type_, in_channels=1, decoder_attention_type=None, img_size=256):
+def build_segmentation(
+    backbone_name, 
+    type_, 
+    in_channels=1, 
+    decoder_attention_type=None, 
+    img_size=256,
+    grad_checkpointing=False,
+):
     """Build segmentation model."""
     backbone_param_key = backbone_name.split('_')[0]
     create_model_kwargs = {}
@@ -425,6 +432,7 @@ def build_segmentation(backbone_name, type_, in_channels=1, decoder_attention_ty
             pretrained=True,
             conv_type=nn.Conv3d,
         )
+        encoder.set_grad_checkpointing(grad_checkpointing)
         encoder = FeatureExtractorWrapper(encoder, format=backbone_name_to_params[backbone_param_key]['format'])
         
         model = Unet(
@@ -464,6 +472,7 @@ def build_segmentation(backbone_name, type_, in_channels=1, decoder_attention_ty
             pretrained=True,
             conv_type=nn.Conv3d,
         )
+        encoder.set_grad_checkpointing(grad_checkpointing)
         
         encoder_channels = get_feature_channels(
             encoder,
@@ -498,6 +507,7 @@ def build_segmentation(backbone_name, type_, in_channels=1, decoder_attention_ty
             pretrained=True,
             conv_type=nn.Conv2d,
         )
+        encoder.set_grad_checkpointing(grad_checkpointing)
 
         encoder = FeatureExtractorWrapper(
             encoder, 
@@ -536,6 +546,8 @@ def build_segmentation(backbone_name, type_, in_channels=1, decoder_attention_ty
             pretrained=True,
             conv_type=nn.Conv2d,
         )
+        if grad_checkpointing:
+            raise NotImplementedError('grad_checkpointing is not supported for 3d_acs.')
 
         # Only convert here, not wrap because 
         # ACSConverterTimm is not a nn.Module
@@ -587,6 +599,7 @@ class SegmentationModule(BaseModule):
         pl_lrs_cfg: Optional[Dict[str, Any]] = None,
         finetuning: Optional[Dict[str, Any]] = None,
         log_norm_verbose: bool = False,
+        grad_checkpointing: bool = False,
         lr_layer_decay: Union[float, Dict[str, float]] = 1.0,
         n_bootstrap: int = 1000,
         skip_nan: bool = False,
@@ -611,6 +624,7 @@ class SegmentationModule(BaseModule):
             in_channels=in_channels,
             decoder_attention_type=decoder_attention_type,
             img_size=img_size,
+            grad_checkpointing=grad_checkpointing,
         )
 
         if finetuning is not None and finetuning['unfreeze_before_epoch'] == 0:

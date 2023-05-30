@@ -97,6 +97,7 @@ model:
     skip_nan: false
     prog_bar_names: 
       - f05
+    grad_checkpointing: false
 data:
   class_path: src.data.datamodules.SurfaceVolumeDatamodule
   init_args:
