@@ -177,7 +177,8 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         surface_volume_dirs_test: Optional[List[str] | str] = None,	
         val_dir_indices: Optional[List[int] | int] = None,
         crop_size: int = 256,
-        crop_size_z: int = 48,
+        crop_size_z: int = 32,
+        scale_z_max: float = 2.0,
         img_size: int = 256,
         img_size_z: int = 64,
         resize_xy: str = 'crop',
@@ -238,14 +239,21 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         rotate_limit_degrees_xy = 45
 
         if self.hparams.resize_xy == 'crop':
-            scale_z_max = 2.0
-
             # Crop to crop_size & crop_size_z
             base_size = self.hparams.crop_size
             self.crop_size_z_pre = math.ceil(
-                self.hparams.crop_size_z * scale_z_max
+                self.hparams.crop_size_z * self.hparams.scale_z_max
             )
-            self.crop_size_z_pre = min(self.crop_size_z_pre, N_SLICES)
+            if self.crop_size_z_pre > N_SLICES:
+                logger.warning(
+                    f'scale_z_max {self.hparams.scale_z_max} results in '
+                    f'crop_size_z_pre {self.crop_size_z_pre} which is too big (> {N_SLICES}), '
+                    f'crop_size_z_pre is set to {N_SLICES} and scale_z_max is set '
+                    f'to {N_SLICES / self.hparams.crop_size_z}'
+                )
+                self.crop_size_z_pre = N_SLICES
+                scale_z_max = self.crop_size_z_pre / self.hparams.crop_size_z
+                
             base_depth = self.hparams.crop_size_z
 
             logger.info(

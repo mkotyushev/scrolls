@@ -107,7 +107,7 @@ data:
     surface_volume_dirs_test: null
     val_dir_indices: 2
     crop_size: 256
-    crop_size_z: 64
+    scale_z_max: 2.0
     img_size: 256
     img_size_z: 64
     resize_xy: crop

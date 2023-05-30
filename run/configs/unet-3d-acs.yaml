@@ -108,9 +108,7 @@ data:
       - /workspace/data/fragments/train/3
     surface_volume_dirs_test: null
     val_dir_indices: 2
-    crop_size: 768
-    crop_size_z: 32
-    img_size: 768
+    scale_z_max: 2.0
     img_size_z: 32
     resize_xy: crop
     use_imagenet_stats: true
