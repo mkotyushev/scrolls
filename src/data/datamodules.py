@@ -245,6 +245,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
             self.crop_size_z_pre = math.ceil(
                 self.hparams.crop_size_z * scale_z_max
             )
+            self.crop_size_z_pre = min(self.crop_size_z_pre, N_SLICES)
             base_depth = self.hparams.crop_size_z
 
             logger.info(
