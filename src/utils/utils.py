@@ -1,3 +1,4 @@
+import logging
 import math
 import cv2
 import numpy as np
@@ -19,6 +20,10 @@ from torchvision.utils import make_grid
 from scipy import interpolate, optimize
 
 from src.model.unet_3d_acs import AcsConvnextWrapper
+from src.model.swin_transformer_v2_3d import nhwdc_to, Format as Format3d
+
+
+logger = logging.getLogger(__name__)
 
 
 class MyLightningCLI(LightningCLI):
@@ -175,26 +180,55 @@ class FeatureExtractorWrapper(nn.Module):
     
     def forward(self, x):
         if self.format == Format('NHWC'):
-            return [nhwc_to(y, Format('NCHW')) for y in self.model(x)]
+            features = [nhwc_to(y, Format('NCHW')) for y in self.model(x)]
         else:
-            return self.model(x)
+            features = self.model(x)
+        return features
+
+
+class FeatureExtractorWrapper3d(nn.Module):
+    def __init__(self, model, output_format: Format3d | str = 'NHWDC'):
+        super().__init__()
+        self.model = model
+        self.output_stride = 32
+        self.output_format = output_format if isinstance(output_format, Format3d) else Format3d(output_format)
+
+    def __iter__(self):
+        return iter(self.model)
+    
+    def forward(self, x):
+        # x here is always (B, C, H, W, D)
+
+        # (B, C, D, H, W) -> (B, C, H, W, D)
+        x = x.permute(0, 1, 3, 4, 2).contiguous()
+
+        if self.output_format == Format3d('NHWDC'):
+            features = [nhwdc_to(y, Format3d('NCDHW')) for y in self.model(x)]
+        else:
+            features = self.model(x)
+        return features
 
 
 def get_num_layers(model: FeatureListNet):
     return len([key for key in model if 'layers' in key])
 
 
-def get_feature_channels(model: FeatureListNet | FeatureExtractorWrapper | AcsConvnextWrapper, input_shape):
+def get_feature_channels(model, input_shape, output_format='NHWC'):
     is_training = model.training
     model.eval()
+    
     x = torch.randn(1, *input_shape)
     y = model(x)
-    if isinstance(model, (FeatureExtractorWrapper, AcsConvnextWrapper)):
-        channel_index = 1
-    else:
-        channel_index = 3
+    channel_index = output_format.find('C')
+    assert channel_index != -1, \
+        f'output_format {output_format} not supported, must contain C'
+    assert all(len(output_format) == len(y_.shape) for y_ in y), \
+        f'output_format {output_format} does not match output shape {y[0].shape}'
     result = tuple(y_.shape[channel_index] for y_ in y)
+    logger.info(f'feature channels: {result}')
+    
     model.train(is_training)
+    
     return result
 
 
