@@ -252,7 +252,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     f'to {N_SLICES / self.hparams.crop_size_z}'
                 )
                 self.crop_size_z_pre = N_SLICES
-                scale_z_max = self.crop_size_z_pre / self.hparams.crop_size_z
+                self.hparams.scale_z_max = self.crop_size_z_pre / self.hparams.crop_size_z
                 
             base_depth = self.hparams.crop_size_z
 
@@ -270,7 +270,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     base_depth=base_depth,
                     scale=(0.5, 2.0),
                     ratio=(0.9, 1.1),
-                    scale_z=(1.0, scale_z_max),
+                    scale_z=(1.0, self.hparams.scale_z_max),
                     always_apply=True,
                     crop_mask_index=0,
                 )
