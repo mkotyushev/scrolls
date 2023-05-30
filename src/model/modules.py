@@ -21,11 +21,18 @@ from src.model.swin_transformer_v2_pseudo_3d import (
     SwinTransformerV2Pseudo3d, 
     map_pretrained_2d_to_pseudo_3d, 
 )
+from src.model.swin_transformer_v2_3d import (
+    SwinTransformerV2 as SwinTransformerV23D,
+    map_pretrained_2d_to_3d, 
+    _update_default_kwargs,
+    Format as Format3d,
+)
 from src.model.unet_2d_agg import Unet2dAgg
 from src.model.unet_2d import Unet2d
 from src.model.unet_3d_acs import ConvNeXtBlockAcs, UNet3dAcs, ACSConverterTimm
 from src.utils.utils import (
     FeatureExtractorWrapper, 
+    FeatureExtractorWrapper3d,
     PredictionTargetPreviewAgg, 
     PredictionTargetPreviewGrid, 
     get_feature_channels, 
@@ -361,11 +368,14 @@ class BaseModule(LightningModule):
 
 backbone_name_to_params = {
     'swinv2': {
-        'window_size': (8, 8, 2),
+        'window_size': (8, 8, 8),
         # TODO: SWIN v2 has patch size 4, upsampling at 
         # the last step degrades quality
         'upsampling': 4,
         'decoder_channels': (256, 128, 64),
+        'decoder_mid_channels': (256, 128, 64),
+        'decoder_out_channels': (256, 128, 64),
+        'scale_factors': (2, 2, 2),
         'format': 'NHWC',
     },
     'convnext': {
@@ -421,10 +431,55 @@ def build_segmentation(backbone_name, type_, in_channels=1, decoder_attention_ty
             encoder=encoder,
             encoder_channels=get_feature_channels(
                 encoder, 
-                input_shape=(1, img_size, img_size, in_channels)
+                input_shape=(1, img_size, img_size, in_channels),
+                output_format='NCHW',
             ),
             decoder_channels=backbone_name_to_params[backbone_param_key]['decoder_channels'],
             classes=1,
+            upsampling=backbone_name_to_params[backbone_param_key]['upsampling'],
+        )
+    elif type_ == '3d':
+        encoder_2d = timm.create_model(
+            backbone_name, 
+            features_only=True,
+            pretrained=True,
+            **create_model_kwargs,
+        )
+        # default _update_default_kwargs is cheching for input shape to be 3D (4D in this case)
+        with \
+            patch('timm.models._builder._update_default_kwargs', _update_default_kwargs), \
+            patch('timm.models._features.Format', Format3d):
+            encoder_3d = timm.create_model(
+                backbone_name.replace('swinv2', 'swinv2_3d'), 
+                features_only=True,
+                pretrained=False,
+                window_size=backbone_name_to_params[backbone_param_key]['window_size'],
+                img_size=(img_size, img_size, in_channels),
+            )
+        encoder = encoder_3d
+        # encoder = map_pretrained_2d_to_3d(encoder_2d, encoder_3d)
+        patch_first_conv(
+            encoder, 
+            new_in_channels=1,
+            default_in_channels=3, 
+            pretrained=True,
+            conv_type=nn.Conv3d,
+        )
+        
+        encoder_channels = get_feature_channels(
+            encoder,
+            input_shape=(1, img_size, img_size, in_channels),
+            output_format='NHWDC',
+        )
+        encoder = FeatureExtractorWrapper3d(encoder, output_format='NHWDC')
+        model = UNet3dAcs(
+            encoder=encoder,
+            encoder_channels=encoder_channels,
+            decoder_mid_channels=backbone_name_to_params[backbone_param_key]['decoder_mid_channels'],
+            decoder_out_channels=backbone_name_to_params[backbone_param_key]['decoder_out_channels'],
+            classes=1,
+            depth=in_channels // backbone_name_to_params[backbone_param_key]['upsampling'],
+            decoder_attention_type=decoder_attention_type,
             upsampling=backbone_name_to_params[backbone_param_key]['upsampling'],
         )
     elif type_.startswith('2d'):
@@ -453,7 +508,8 @@ def build_segmentation(backbone_name, type_, in_channels=1, decoder_attention_ty
             encoder=encoder,
             encoder_channels=get_feature_channels(
                 encoder, 
-                input_shape=(in_channels, img_size, img_size)
+                input_shape=(in_channels, img_size, img_size),
+                output_format='NCHW',
             ),
             decoder_channels=backbone_name_to_params[backbone_param_key]['decoder_channels'],
             classes=1,
@@ -495,7 +551,8 @@ def build_segmentation(backbone_name, type_, in_channels=1, decoder_attention_ty
             encoder=encoder,
             encoder_channels=get_feature_channels(
                 encoder,
-                input_shape=(1, img_size, img_size, in_channels)
+                input_shape=(1, img_size, img_size, in_channels),
+                output_format='NCDHW',
             ),
             decoder_mid_channels=backbone_name_to_params[backbone_param_key]['decoder_mid_channels'],
             decoder_out_channels=backbone_name_to_params[backbone_param_key]['decoder_out_channels'],
