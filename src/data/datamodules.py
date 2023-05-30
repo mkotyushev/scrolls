@@ -182,6 +182,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         img_size_z: int = 64,
         resize_xy: str = 'crop',
         use_imagenet_stats: bool = True,
+        use_mix: bool = False,
         batch_size: int = 32,
         batch_size_full: int = 32,
         batch_size_full_apply_epoch: Optional[int] = None,
@@ -273,6 +274,17 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         else:
             raise ValueError(f'Unknown resize_xy: {self.hparams.resize_xy}')
 
+        # If mix is used, then train_transform_mix is used
+        # (additional costly sampling & augmentation from dataset)
+        # and post transform is done in train_transform_mix
+        # otherwise post transform is done in train_transform 
+        post_transform = []
+        if not self.hparams.use_mix:
+            post_transform = [
+                ToTensorV2(),
+                ToCHWD(always_apply=True),
+            ]
+
         self.train_transform = A.Compose(
             [
                 CenterCropVolume(
@@ -319,28 +331,31 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     std=self.train_volume_std,
                     always_apply=True,
                 ),
+                *post_transform,
             ],
         )
-        self.train_transform_mix = A.Compose(
-            [
-                ToFloatMasks(),
-                A.OneOf(
-                    [
-                        CutMix(
-                            width=int(self.hparams.img_size * 0.3), 
-                            height=int(self.hparams.img_size * 0.3), 
-                            p=1.0,
-                            always_apply=False,
-                        ),
-                        MixUp(alpha=3.0, beta=3.0, p=1.0, always_apply=False),
-                        CopyPastePositive(mask_index=2, p=1.0, always_apply=False),
-                    ],
-                    p=0.5,
-                ),
-                ToTensorV2(),
-                ToCHWD(always_apply=True),
-            ],
-        )
+        self.train_transform_mix = None
+        if self.hparams.use_mix:
+            self.train_transform_mix = A.Compose(
+                [
+                    ToFloatMasks(),
+                    A.OneOf(
+                        [
+                            CutMix(
+                                width=int(self.hparams.img_size * 0.3), 
+                                height=int(self.hparams.img_size * 0.3), 
+                                p=1.0,
+                                always_apply=False,
+                            ),
+                            MixUp(alpha=3.0, beta=3.0, p=1.0, always_apply=False),
+                            CopyPastePositive(mask_index=2, p=1.0, always_apply=False),
+                        ],
+                        p=0.5,
+                    ),
+                    ToTensorV2(),
+                    ToCHWD(always_apply=True),
+                ],
+            )
         self.val_transform = self.test_transform = A.Compose(
             [
                 CenterCropVolume(
