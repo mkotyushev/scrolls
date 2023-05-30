@@ -456,8 +456,7 @@ def build_segmentation(backbone_name, type_, in_channels=1, decoder_attention_ty
                 window_size=backbone_name_to_params[backbone_param_key]['window_size'],
                 img_size=(img_size, img_size, in_channels),
             )
-        encoder = encoder_3d
-        # encoder = map_pretrained_2d_to_3d(encoder_2d, encoder_3d)
+        encoder = map_pretrained_2d_to_3d(encoder_2d, encoder_3d)
         patch_first_conv(
             encoder, 
             new_in_channels=1,
