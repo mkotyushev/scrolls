@@ -21,7 +21,7 @@ trainer:
   # limit_val_batches: 10
   max_epochs: 100
   num_sanity_val_steps: 0
-  accumulate_grad_batches: 4
+  accumulate_grad_batches: 2
   reload_dataloaders_every_n_epochs: 1
   log_every_n_steps: 10
   gradient_clip_val: 5
@@ -107,15 +107,16 @@ data:
     surface_volume_dirs_test: null
     val_dir_indices: 2
     crop_size: 256
-    scale_z_max: 2.0
+    crop_size_z: 32
+    scale_z_max: 1.5
     img_size: 256
     img_size_z: 64
     resize_xy: crop
     use_imagenet_stats: true
     use_mix: false
-    batch_size: 2
+    batch_size: 4
     batch_size_full_apply_epoch: null
-    num_workers: 4
+    num_workers: 8
     pin_memory: false
     prefetch_factor: 2
     persistent_workers: true
