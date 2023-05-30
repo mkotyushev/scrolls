@@ -157,7 +157,8 @@ class WindowAttentionPseudo3d(nn.Module):
         relative_coords[:, :, 0] += self.window_size[0] - 1  # shift to start from 0
         relative_coords[:, :, 1] += self.window_size[1] - 1
         relative_coords[:, :, 2] += self.window_size[2] - 1
-        relative_coords[:, :, 0] *= 2 * self.window_size[1] - 1
+        relative_coords[:, :, 0] *= (2 * self.window_size[1] - 1) * (2 * self.window_size[2] - 1)
+        relative_coords[:, :, 1] *= 2 * self.window_size[2] - 1
         relative_position_index = relative_coords.sum(-1)  # Wh*Ww*Wd, Wh*Ww*Wd
         self.register_buffer("relative_position_index", relative_position_index, persistent=False)
 
@@ -633,7 +634,7 @@ def map_pretrained_2d_to_pseudo_3d(model_2d, model_pseudo_3d):
                     ) / model_pseudo_3d_state_dict[key].shape[-1]
                 elif key == 'layers_0.blocks.0.attn.cpb_mlp.0.weight':
                     model_pseudo_3d_state_dict[key][:, :2] = value
-                    model_pseudo_3d_state_dict[key][:, -1] = value.mean(dim=1)
+                    model_pseudo_3d_state_dict[key][:, -1] = 0.0
                 else:
                     raise ValueError(
                         f'{key}\'s shape {value.shape} is not equal '
