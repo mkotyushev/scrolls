@@ -460,7 +460,6 @@ class PatchMerging(nn.Module):
         # (B, H, W, D, C) -> (B, H // 2, 2, W // 2, 2, D // 2, 2, C)
         x = x.reshape(B, H // 2, 2, W // 2, 2, D // 2, 2, C)
         # (B, H // 2, 2, W // 2, 2, D // 2, 2, C) -> (B, H // 2, W // 2, D // 2, Cd, Cw, Ch, C)
-        # TODO: check dimention order
         x = x.permute(0, 1, 3, 5, 6, 4, 2, 7)
         # (B, H // 2, W // 2, D // 2, Cd, Cw, Ch, C) -> (B, H // 2, W // 2, D // 2, C')
         x = x.flatten(4)
@@ -770,14 +769,8 @@ def map_pretrained_2d_to_3d(model_2d, model_3d):
                     ) / model_3d_state_dict[key].shape[-1]
                 elif key.endswith('cpb_mlp.0.weight'):
                     model_3d_state_dict[key][:, :2] = value
-                    # TODO: check if 0.0 is suitable as 
-                    # default of depth coordinate relative bias MLP weight
-                    model_3d_state_dict[key][:, -1] = 0.0
                 elif key.endswith('downsample.reduction.weight'):
-                    model_3d_state_dict[key][:, ::2] = value
-                    # TODO: check if 0.0 is suitable as 
-                    # default of depth downsample MLP weight
-                    model_3d_state_dict[key][:, 1::2] = 0
+                    model_3d_state_dict[key] = value.repeat(1, 2)
                 else:
                     raise ValueError(
                         f'{key}\'s shape {value.shape} is not equal '
