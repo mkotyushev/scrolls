@@ -63,7 +63,8 @@ model:
   init_args:
     type_: 3d
     backbone_name: swinv2_tiny_window8_256.ms_in1k
-    in_channels: 64
+    decoder_attention_type: null
+    in_channels: 32
     log_preview_every_n_epochs: 5
     tta_each_n_epochs: -1
     tta_n_random_replays: 0
@@ -103,16 +104,16 @@ data:
   class_path: src.data.datamodules.SurfaceVolumeDatamodule
   init_args:
     surface_volume_dirs: 
-      - /workspace/data/fragments/train/1
-      - /workspace/data/fragments/train/2
-      - /workspace/data/fragments/train/3
+      - /workspace/data/fragments_z_shift_scale/train/1
+      - /workspace/data/fragments_z_shift_scale/train/2
+      - /workspace/data/fragments_z_shift_scale/train/3
     surface_volume_dirs_test: null
     val_dir_indices: 2
-    crop_size: 256
-    crop_size_z: 32
-    scale_z_max: 1.5
-    img_size: 256
-    img_size_z: 64
+    z_start: 26
+    z_end: 38
+    img_size: 512
+    img_size_z: 32
+    z_scale_limit: 2.0
     resize_xy: crop
     use_imagenet_stats: true
     use_mix: false

@@ -115,10 +115,11 @@ data:
       - /workspace/data/fragments_downscaled_2/train/3
     surface_volume_dirs_test: null
     val_dir_indices: 2
-    crop_size: 256
-    crop_size_z: 64
+    z_start: 0
+    z_end: 64
     img_size: 256
     img_size_z: 64
+    z_scale_limit: 2.0
     resize_xy: crop
     use_imagenet_stats: true
     use_rotate_x: false

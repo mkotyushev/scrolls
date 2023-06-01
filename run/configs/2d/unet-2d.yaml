@@ -63,7 +63,7 @@ model:
   init_args:
     type_: 2d
     decoder_attention_type: null
-    in_channels: 6
+    in_channels: 12
     backbone_name: null
     log_preview_every_n_epochs: 5
     tta_each_n_epochs: -1
@@ -112,11 +112,11 @@ data:
       - /workspace/data/fragments_z_shift_scale/train/3
     surface_volume_dirs_test: null
     val_dir_indices: 1
-    crop_size: 256
-    crop_size_z: 6
-    scale_z_max: 2.0
+    z_start: 20
+    z_end: 44
     img_size: 256
-    img_size_z: 6
+    img_size_z: 12
+    z_scale_limit: 2.0
     resize_xy: crop
     use_imagenet_stats: true
     use_mix: false
