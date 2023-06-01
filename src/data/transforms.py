@@ -310,8 +310,63 @@ class CenterCropVolume(DualTransform):
         return ("height", "width", "depth")
     
 
+class RandomZSlices(ImageOnlyTransform):
+    """Randomly select N (permuted) slices from the input.
+
+    Args:
+        n_slices (int): number of slices to select.
+        p (float): probability of applying the transform. Default: 1.
+
+    Targets:
+        image, mask
+
+    Image types:
+        uint8, float32
+    """
+
+    def __init__(self, n_slices, permuted=True, always_apply=False, p=1.0):
+        super().__init__(always_apply, p)
+        self.n_slices = n_slices
+        self.permuted = permuted
+
+    def apply(self, img, **params):
+        indices = np.random.permutation(img.shape[2])[:self.n_slices]
+        if not self.permuted:
+            indices = np.sort(indices)
+        return img[:, :, indices]
+
+    def get_transform_init_args_names(self):
+        return ("n_slices", )
+
+
+class UniformZSlices(ImageOnlyTransform):
+    """Select N (uniformly) slices from the input.
+
+    Args:
+        n_slices (int): number of slices to select.
+        p (float): probability of applying the transform. Default: 1.
+
+    Targets:
+        image, mask
+
+    Image types:
+        uint8, float32
+    """
+
+    def __init__(self, n_slices, always_apply=False, p=1.0):
+        super().__init__(always_apply, p)
+        self.n_slices = n_slices
+
+    def apply(self, img, **params):
+        indices = np.linspace(0, img.shape[2] - 1, self.n_slices).astype(int)
+        return img[:, :, indices]
+
+    def get_transform_init_args_names(self):
+        return ("n_slices", )
+
+
 class ResizeVolume(Resize):
-    def __init__(self, height, width, depth, interpolation=cv2.INTER_LINEAR, always_apply=False, p=1):
+    def __init__(self, height, width, depth=None, interpolation=cv2.INTER_LINEAR, always_apply=False, p=1):
         super().__init__(height, width, interpolation, always_apply, p)
         self.depth = depth
 
@@ -321,15 +376,16 @@ class ResizeVolume(Resize):
         if is_mask:
             return img
     
-        # Interpolate depth
-        # (H, W, D) -> (D, H, W)
-        img = np.transpose(img, (2, 0, 1))
-        
-        # Resize as usual image
-        img = F_geometric.resize(img, height=self.depth, width=img.shape[1], interpolation=interpolation)
+        if self.depth is not None:
+            # Interpolate depth
+            # (H, W, D) -> (D, H, W)
+            img = np.transpose(img, (2, 0, 1))
+            
+            # Resize as usual image
+            img = F_geometric.resize(img, height=self.depth, width=img.shape[1], interpolation=interpolation)
 
-        # (D, H, W) -> (H, W, D)
-        img = np.transpose(img, (1, 2, 0))
+            # (D, H, W) -> (H, W, D)
+            img = np.transpose(img, (1, 2, 0))
 
         return img
 
