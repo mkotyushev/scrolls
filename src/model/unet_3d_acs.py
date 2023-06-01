@@ -252,7 +252,7 @@ class DecoderBlock(nn.Module):
         self.attention2 = AttentionAcs(attention_type, in_channels=out_channels)
 
     def forward(self, x, skip=None):
-        x = F.interpolate(x, scale_factor=2, mode="nearest")
+        x = F.interpolate(x, scale_factor=2, mode="trilinear")
         if skip is not None:
             x = torch.cat([x, skip], dim=1)
             x = self.attention1(x)
@@ -304,14 +304,20 @@ class UNet3dAcsDecoder(nn.Module):
         return x
 
 
-class GlobalAveragePooling(nn.Module):
-    def __init__(self, dim, keepdim=False):
+class GlobalPooling(nn.Module):
+    def __init__(self, dim, agg='max', keepdim=False):
         super().__init__()
         self.dim = dim
+        self.agg = agg
         self.keepdim = keepdim
 
     def forward(self, x):
-        return x.mean(dim=self.dim, keepdim=self.keepdim)
+        if self.agg == 'max':
+            return x.max(dim=self.dim, keepdim=self.keepdim)[0]
+        elif self.agg == 'mean':
+            return x.mean(dim=self.dim, keepdim=self.keepdim)
+        else:
+            raise ValueError('Unknown aggregation {}'.format(self.agg))
 
 
 class SegmentationHeadAcs(nn.Module):
@@ -322,8 +328,8 @@ class SegmentationHeadAcs(nn.Module):
         if depth is not None:
             self.pooling = nn.Linear(depth, 1)
         else:
-            self.pooling = GlobalAveragePooling(dim=-1, keepdim=True)
-        self.upsampling = nn.UpsamplingNearest2d(scale_factor=upsampling) if upsampling > 1 else nn.Identity()
+            self.pooling = GlobalPooling(dim=-1, agg='max', keepdim=True)
+        self.upsampling = nn.UpsamplingBilinear2d(scale_factor=upsampling) if upsampling > 1 else nn.Identity()
         self.activation = Activation(activation)
 
     def forward(self, x):
