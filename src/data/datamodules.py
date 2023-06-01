@@ -32,11 +32,11 @@ logger = logging.getLogger(__name__)
 
 N_SLICES = 65
 MAX_PIXEL_VALUE = 65536
-def read_data(surface_volume_dirs, center_crop_z=None):
-    z_start, z_end = 0, N_SLICES
-    if center_crop_z is not None:
-        z_start = (N_SLICES - center_crop_z) // 2
-        z_end = z_start + center_crop_z
+def read_data(surface_volume_dirs, z_start=None, z_end=None):
+    if z_start is None:
+        z_start = 0
+    if z_end is None:
+        z_end = N_SLICES
 
     # Volumes
     volumes = []
@@ -178,6 +178,8 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         val_dir_indices: Optional[List[int] | int] = None,
         crop_size: int = 256,
         crop_size_z: int = 32,
+        z_start: int = 24,
+        z_end: int = 48,
         scale_z_max: float = 2.0,
         img_size: int = 256,
         img_size_z: int = 64,
@@ -425,7 +427,8 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 divides = \
                     read_data(
                         train_surface_volume_dirs, 
-                        center_crop_z=self.crop_size_z_pre,
+                        z_start=self.hparams.z_start,
+                        z_end=self.hparams.z_end,
                     )
                 
                 # Update mean and std
@@ -461,7 +464,8 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 divides = \
                     read_data(
                         val_surface_volume_dirs, 
-                        center_crop_z=self.crop_size_z_pre,
+                        z_start=self.hparams.z_start,
+                        z_end=self.hparams.z_end,
                     )
                 
                 self.val_dataset = InMemorySurfaceVolumeDataset(
@@ -485,7 +489,8 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 divides = \
                     read_data(
                         self.hparams.surface_volume_dirs, 
-                        center_crop_z=self.crop_size_z_pre,
+                        z_start=self.hparams.z_start,
+                        z_end=self.hparams.z_end,
                     )
                 
                 # Update mean and std
@@ -518,7 +523,8 @@ class SurfaceVolumeDatamodule(LightningDataModule):
             divides = \
                 read_data(
                     self.hparams.surface_volume_dirs_test, 
-                    center_crop_z=self.crop_size_z_pre,
+                    z_start=self.hparams.z_start,
+                    z_end=self.hparams.z_end,
                 )
             self.test_dataset = InMemorySurfaceVolumeDataset(
                 volumes=volumes, 
