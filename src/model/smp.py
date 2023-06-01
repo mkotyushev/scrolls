@@ -356,6 +356,9 @@ def patch_first_conv(model, new_in_channels, default_in_channels=3, pretrained=T
         in_channels > 3 -> make random kaiming normal initialization
     """
 
+    if new_in_channels == default_in_channels:
+        return
+
     # get first conv
     for module in model.modules():
         if isinstance(module, conv_type) and module.in_channels == default_in_channels:
