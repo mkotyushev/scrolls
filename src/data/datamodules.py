@@ -327,7 +327,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     ], 
                     p=0.4
                 ),
-                A.GridDistortion(num_steps=5, distort_limit=0.3, p=0.5),
+                # A.GridDistortion(num_steps=5, distort_limit=0.3, p=0.5),
                 A.CoarseDropout(
                     max_holes=1, 
                     max_width=int(self.hparams.img_size * 0.3), 
