@@ -3,7 +3,6 @@ import math
 import cv2
 import albumentations as A
 import numpy as np
-import torch.multiprocessing as mp
 from torch.utils.data.sampler import WeightedRandomSampler
 from pathlib import Path
 from typing import List, Optional
@@ -22,7 +21,7 @@ from src.data.transforms import (
     CenterCropVolume, 
     ResizeVolume, 
     ToCHWD,
-    ToFloatMasks, 
+    ToFloatMasks,
 )
 from src.utils.utils import calculate_statistics, surface_volume_collate_fn
 
@@ -139,7 +138,7 @@ def calc_mean_std(volumes, scroll_masks):
     return mean, std
 
 
-def get_num_samples_and_weights(scroll_masks, crop_size):
+def get_num_samples_and_weights(scroll_masks, img_size):
     assert all(
         [
             scroll_mask.min() == 0 and scroll_mask.max() == 1
@@ -152,7 +151,7 @@ def get_num_samples_and_weights(scroll_masks, crop_size):
     ]
     num_samples = sum(
         [
-            math.ceil(area / (crop_size ** 2))
+            math.ceil(area / (img_size ** 2))
             for area in areas
         ]
     )
@@ -176,13 +175,11 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         surface_volume_dirs: List[str] | str = './data/train',	
         surface_volume_dirs_test: Optional[List[str] | str] = None,	
         val_dir_indices: Optional[List[int] | int] = None,
-        crop_size: int = 256,
-        crop_size_z: int = 32,
         z_start: int = 24,
         z_end: int = 48,
-        scale_z_max: float = 2.0,
         img_size: int = 256,
         img_size_z: int = 64,
+        z_scale_limit: float = 2.0,
         resize_xy: str = 'crop',
         use_imagenet_stats: bool = True,
         use_mix: bool = False,
@@ -213,8 +210,6 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         self.val_transform = None
         self.test_transform = None
 
-        self.crop_size_z_pre = self.hparams.crop_size_z
-
         # Train dataset scale is min volume scale for surface_volume_dirs
         volume_scales = []
         for root in self.hparams.surface_volume_dirs:
@@ -241,38 +236,13 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         rotate_limit_degrees_xy = 45
 
         if self.hparams.resize_xy == 'crop':
-            # Crop to crop_size & crop_size_z
-            base_size = self.hparams.crop_size
-            self.crop_size_z_pre = math.ceil(
-                self.hparams.crop_size_z * self.hparams.scale_z_max
-            )
-            if self.crop_size_z_pre > N_SLICES:
-                logger.warning(
-                    f'scale_z_max {self.hparams.scale_z_max} results in '
-                    f'crop_size_z_pre {self.crop_size_z_pre} which is too big (> {N_SLICES}), '
-                    f'crop_size_z_pre is set to {N_SLICES} and scale_z_max is set '
-                    f'to {N_SLICES / self.hparams.crop_size_z}'
-                )
-                self.crop_size_z_pre = N_SLICES
-                self.hparams.scale_z_max = self.crop_size_z_pre / self.hparams.crop_size_z
-                
-            base_depth = self.hparams.crop_size_z
-
-            logger.info(
-                f'crop_size: {self.hparams.crop_size}, '
-                f'base_size: {base_size}, '
-                f'crop_size_z: {self.hparams.crop_size_z}, '
-                f'base_depth: {base_depth}, '
-                f'crop_size_z_pre: {self.crop_size_z_pre}'
-            )
-
             train_pre_resize_transform = [ 
                 RandomCropVolumeInside2dMask(
-                    base_size=base_size, 
-                    base_depth=base_depth,
+                    base_size=self.hparams.img_size, 
+                    base_depth=self.hparams.img_size_z,
                     scale=(0.5, 2.0),
                     ratio=(0.9, 1.1),
-                    scale_z=(1.0, self.hparams.scale_z_max),
+                    scale_z=(1 / self.hparams.z_scale_limit, self.hparams.z_scale_limit),
                     always_apply=True,
                     crop_mask_index=0,
                 )
@@ -298,13 +268,6 @@ class SurfaceVolumeDatamodule(LightningDataModule):
 
         self.train_transform = A.Compose(
             [
-                CenterCropVolume(
-                    height=None, 
-                    width=None,
-                    depth=self.crop_size_z_pre,
-                    strict=True,
-                    always_apply=True,
-                ),
                 *train_pre_resize_transform,
                 A.Rotate(
                     p=0.5, 
@@ -372,14 +335,15 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 CenterCropVolume(
                     height=None, 
                     width=None,
-                    depth=self.crop_size_z_pre,
+                    depth=self.hparams.img_size_z,
                     strict=True,
                     always_apply=True,
+                    p=1.0,
                 ),
                 ResizeVolume(
                     height=self.hparams.img_size, 
                     width=self.hparams.img_size,
-                    depth=self.hparams.img_size_z,
+                    depth=None,
                     always_apply=True,
                 ),
                 A.Normalize(
@@ -396,16 +360,16 @@ class SurfaceVolumeDatamodule(LightningDataModule):
     def setup(self, stage: str = None) -> None:
         self.build_transforms()
 
-        # Controls whether val dataset will be cropped to patches (crop_size)
-        # with step (crop_size // 2) or whole volume is provided (None)
+        # Controls whether val dataset will be cropped to patches (img_size)
+        # with step (img_size // 2) or whole volume is provided (None)
         val_test_patch_size = \
             None \
             if self.hparams.resize_xy in ['resize', 'none'] else \
-            self.hparams.crop_size
+            self.hparams.img_size
         val_test_patch_step = \
             None \
             if self.hparams.resize_xy in ['resize', 'none'] else \
-            self.hparams.crop_size // 2
+            self.hparams.img_size // 2
 
         if self.train_dataset is None:
             if (
@@ -570,7 +534,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         if self.hparams.resize_xy == 'crop':
             num_samples, weights = get_num_samples_and_weights(
                 scroll_masks=self.train_dataset.scroll_masks,
-                crop_size=self.hparams.crop_size,
+                img_size=self.hparams.img_size,
             )
             sampler = WeightedRandomSampler(
                 weights=weights, 
