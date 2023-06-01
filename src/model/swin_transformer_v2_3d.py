@@ -161,6 +161,80 @@ class PatchEmbed(nn.Module):
         return x
 
 
+def build_relative_position_encoding(window_size, pretrained_window_size, pseudo_3d):
+    if pseudo_3d:
+        # get relative_coords_table
+        relative_coords_h = torch.arange(-(window_size[0] - 1), window_size[0], dtype=torch.float32)
+        relative_coords_w = torch.arange(-(window_size[1] - 1), window_size[1], dtype=torch.float32)
+        relative_coords_table = torch.stack(torch.meshgrid([
+            relative_coords_h,
+            relative_coords_w])).permute(1, 2, 0).contiguous().unsqueeze(0)  # 1, 2*Wh-1, 2*Ww-1, 3
+        if pretrained_window_size[0] > 0:
+            relative_coords_table[:, :, :, 0] /= (pretrained_window_size[0] - 1)
+            relative_coords_table[:, :, :, 1] /= (pretrained_window_size[1] - 1)
+        else:
+            relative_coords_table[:, :, :, 0] /= (window_size[0] - 1)
+            relative_coords_table[:, :, :, 1] /= (window_size[1] - 1)
+        relative_coords_table *= 8  # normalize to -8, 8
+        relative_coords_table = torch.sign(relative_coords_table) * torch.log2(
+            torch.abs(relative_coords_table) + 1.0) / math.log2(8)
+
+        # get pair-wise relative position index for each token inside the window
+        coords_h = torch.arange(window_size[0])
+        coords_w = torch.arange(window_size[1])
+        coords_d = torch.arange(window_size[2])
+        coords = torch.stack(torch.meshgrid([coords_h, coords_w, coords_d]))  # 3, Wh, Ww, Wd
+        coords_flatten = torch.flatten(coords, 1)  # 2, Wh*Ww*Wd
+        relative_coords = coords_flatten[:, :, None] - coords_flatten[:, None, :]  # 3, Wh*Ww*Wd, Wh*Ww*Wd
+        relative_coords = relative_coords.permute(1, 2, 0).contiguous()  # Wh*Ww*Wd, Wh*Ww*Wd, 3
+
+        relative_coords[:, :, 0] += window_size[0] - 1  # shift to start from 0
+        relative_coords[:, :, 1] += window_size[1] - 1
+        relative_coords[:, :, 0] *= 2 * window_size[1] - 1
+        relative_coords[:, :, 2] = 0
+
+        relative_position_index = relative_coords.sum(-1)  # Wh*Ww*Wd, Wh*Ww*Wd
+    else:
+        relative_coords_h = torch.arange(-(window_size[0] - 1), window_size[0], dtype=torch.float32)
+        relative_coords_w = torch.arange(-(window_size[1] - 1), window_size[1], dtype=torch.float32)
+        relative_coords_d = torch.arange(-(window_size[2] - 1), window_size[2], dtype=torch.float32)
+        relative_coords_table = torch.stack(torch.meshgrid([
+            relative_coords_h,
+            relative_coords_w,
+            relative_coords_d])).permute(1, 2, 3, 0).contiguous().unsqueeze(0)  # 1, 2*Wh-1, 2*Ww-1, 2*Wd-1, 3
+        if pretrained_window_size[0] > 0:
+            relative_coords_table[:, :, :, :, 0] /= ((pretrained_window_size[0] - 1) or 1)
+            relative_coords_table[:, :, :, :, 1] /= ((pretrained_window_size[1] - 1) or 1)
+            relative_coords_table[:, :, :, :, 2] /= ((pretrained_window_size[2] - 1) or 1)
+        else:
+            relative_coords_table[:, :, :, :, 0] /= ((window_size[0] - 1) or 1)
+            relative_coords_table[:, :, :, :, 1] /= ((window_size[1] - 1) or 1)
+            relative_coords_table[:, :, :, :, 2] /= ((window_size[2] - 1) or 1)
+        relative_coords_table *= 8  # normalize to -8, 8
+        relative_coords_table = torch.sign(relative_coords_table) * torch.log2(
+            torch.abs(relative_coords_table) + 1.0) / math.log2(8)
+
+        # get pair-wise relative position index for each token inside the window
+        coords_h = torch.arange(window_size[0])
+        coords_w = torch.arange(window_size[1])
+        coords_d = torch.arange(window_size[2])
+        coords = torch.stack(torch.meshgrid([coords_h, coords_w, coords_d]))  # 3, Wh, Ww, Wd
+        coords_flatten = torch.flatten(coords, 1)  # 3, Wh*Ww*Wd
+        relative_coords = coords_flatten[:, :, None] - coords_flatten[:, None, :]  # 3, Wh*Ww*Wd, Wh*Ww*Wd
+        relative_coords = relative_coords.permute(1, 2, 0).contiguous()  # Wh*Ww*Wd, Wh*Ww*Wd, 3
+
+        relative_coords[:, :, 0] += window_size[0] - 1  # shift to start from 0
+        relative_coords[:, :, 1] += window_size[1] - 1
+        relative_coords[:, :, 2] += window_size[2] - 1
+        # relative_coords[:, :, 0] *= 2 * window_size[1] - 1
+        # relative_coords[:, :, 2] *= ((2 * window_size[0] - 1) * (2 * window_size[1] - 1))
+        relative_coords[:, :, 0] *= ((2 * window_size[1] - 1) * (2 * window_size[2] - 1))
+        relative_coords[:, :, 1] *= (2 * window_size[2] - 1)
+
+        relative_position_index = relative_coords.sum(-1)  # Wh*Ww*Wd, Wh*Ww*Wd
+    return relative_coords_table, relative_position_index
+
+
 class WindowAttention(nn.Module):
     r""" Window based multi-head self attention (W-MSA) module with relative position bias.
     It supports both of shifted and non-shifted window.
@@ -184,6 +258,7 @@ class WindowAttention(nn.Module):
             attn_drop=0.,
             proj_drop=0.,
             pretrained_window_size=[0, 0, 0],
+            pseudo_3d=False,
     ):
         super().__init__()
         self.dim = dim
@@ -195,49 +270,26 @@ class WindowAttention(nn.Module):
 
         # mlp to generate continuous relative position bias
         self.cpb_mlp = nn.Sequential(
-            nn.Linear(3, 512, bias=True),
+            nn.Linear(2 if pseudo_3d else 3, 512, bias=True),
             nn.ReLU(inplace=True),
             nn.Linear(512, num_heads, bias=False)
         )
 
-        # get relative_coords_table
-        relative_coords_h = torch.arange(-(self.window_size[0] - 1), self.window_size[0], dtype=torch.float32)
-        relative_coords_w = torch.arange(-(self.window_size[1] - 1), self.window_size[1], dtype=torch.float32)
-        relative_coords_d = torch.arange(-(self.window_size[2] - 1), self.window_size[2], dtype=torch.float32)
-        relative_coords_table = torch.stack(torch.meshgrid([
-            relative_coords_h,
-            relative_coords_w,
-            relative_coords_d])).permute(1, 2, 3, 0).contiguous().unsqueeze(0)  # 1, 2*Wh-1, 2*Ww-1, 2*Wd-1, 3
-        if pretrained_window_size[0] > 0:
-            relative_coords_table[:, :, :, :, 0] /= (pretrained_window_size[0] - 1)
-            relative_coords_table[:, :, :, :, 1] /= (pretrained_window_size[1] - 1)
-            relative_coords_table[:, :, :, :, 2] /= (pretrained_window_size[2] - 1)
-        else:
-            relative_coords_table[:, :, :, :, 0] /= (self.window_size[0] - 1)
-            relative_coords_table[:, :, :, :, 1] /= (self.window_size[1] - 1)
-            relative_coords_table[:, :, :, :, 2] /= (self.window_size[2] - 1)
-        relative_coords_table *= 8  # normalize to -8, 8
-        relative_coords_table = torch.sign(relative_coords_table) * torch.log2(
-            torch.abs(relative_coords_table) + 1.0) / math.log2(8)
-
+        relative_coords_table, relative_position_index = build_relative_position_encoding(
+            window_size, 
+            pretrained_window_size, 
+            pseudo_3d
+        )
+        
         self.register_buffer("relative_coords_table", relative_coords_table, persistent=False)
-
-        # get pair-wise relative position index for each token inside the window
-        coords_h = torch.arange(self.window_size[0])
-        coords_w = torch.arange(self.window_size[1])
-        coords_d = torch.arange(self.window_size[2])
-        coords = torch.stack(torch.meshgrid([coords_h, coords_w, coords_d]))  # 3, Wh, Ww, Wd
-        coords_flatten = torch.flatten(coords, 1)  # 2, Wh*Ww*Wd
-        relative_coords = coords_flatten[:, :, None] - coords_flatten[:, None, :]  # 3, Wh*Ww*Wd, Wh*Ww*Wd
-        relative_coords = relative_coords.permute(1, 2, 0).contiguous()  # Wh*Ww*Wd, Wh*Ww*Wd, 3
-        relative_coords[:, :, 0] += self.window_size[0] - 1  # shift to start from 0
-        relative_coords[:, :, 1] += self.window_size[1] - 1
-        relative_coords[:, :, 2] += self.window_size[2] - 1
-        # TODO: check if it is correct way to introduce depth dimension
-        relative_coords[:, :, 0] *= ((2 * self.window_size[1] - 1) * (2 * self.window_size[2] - 1))
-        relative_coords[:, :, 1] *= (2 * self.window_size[2] - 1)
-        relative_position_index = relative_coords.sum(-1)  # Wh*Ww*Wd, Wh*Ww*Wd
         self.register_buffer("relative_position_index", relative_position_index, persistent=False)
+        print(
+            'window_size: ', self.window_size, 
+            ', pretrained_window_size: ', pretrained_window_size, 
+            ', relative_position_index: ', relative_position_index.shape, 
+            relative_position_index.unique().numel(), 
+            relative_position_index.numel()
+        )
 
         self.qkv = nn.Linear(dim, dim * 3, bias=False)
         if qkv_bias:
@@ -753,7 +805,7 @@ def _create_swin_transformer_v2(variant, pretrained=False, **kwargs):
 
 
 
-def map_pretrained_2d_to_3d(model_2d, model_3d):
+def map_pretrained_2d_to_3d(model_2d, model_3d, normalize=True):
     model_2d_state_dict = model_2d.state_dict()
     model_3d_state_dict = deepcopy(model_3d.state_dict())
     for key, value in model_2d_state_dict.items():
@@ -764,12 +816,19 @@ def map_pretrained_2d_to_3d(model_2d, model_3d):
                 print(f'{key}: {value.shape} -> {model_3d_state_dict[key].shape}')
                 if key == 'patch_embed.proj.weight':
                     # Repeat the 2D patch embedding weight along the depth dimension
+                    if normalize:
+                        value = value / model_3d_state_dict[key].shape[-1] * 1
                     model_3d_state_dict[key] = value.unsqueeze(-1).repeat(
                         1, 1, 1, 1, model_3d_state_dict[key].shape[-1]
-                    ) / model_3d_state_dict[key].shape[-1]
+                    )
                 elif key.endswith('cpb_mlp.0.weight'):
+                    if normalize:
+                        value = value / model_3d_state_dict[key].shape[1] * value.shape[1]
                     model_3d_state_dict[key][:, :2] = value
+                    model_3d_state_dict[key][:, -1] = value[:, -1]
                 elif key.endswith('downsample.reduction.weight'):
+                    if normalize:
+                        value = value / model_3d_state_dict[key].shape[1] * value.shape[1]
                     model_3d_state_dict[key] = value.repeat(1, 2)
                 else:
                     raise ValueError(
@@ -838,7 +897,7 @@ default_cfgs = generate_default_cfgs({
     'swinv2_3d_base_window12to24_192to384.ms_in22k_ft_in1k': _cfg(
         hf_hub_id='timm/',
         url='https://github.com/SwinTransformer/storage/releases/download/v2.0.0/swinv2_base_patch4_window12to24_192to384_22kto1k_ft.pth',
-        input_size=(3, 384, 384, 32), pool_size=(12, 12), crop_pct=1.0,
+        input_size=(3, 384, 384, 64), pool_size=(12, 12), crop_pct=1.0,
     ),
     'swinv2_3d_large_window12to16_192to256.ms_in22k_ft_in1k': _cfg(
         hf_hub_id='timm/',
@@ -847,7 +906,7 @@ default_cfgs = generate_default_cfgs({
     'swinv2_3d_large_window12to24_192to384.ms_in22k_ft_in1k': _cfg(
         hf_hub_id='timm/',
         url='https://github.com/SwinTransformer/storage/releases/download/v2.0.0/swinv2_large_patch4_window12to24_192to384_22kto1k_ft.pth',
-        input_size=(3, 384, 384, 32), pool_size=(12, 12), crop_pct=1.0,
+        input_size=(3, 384, 384, 64), pool_size=(12, 12), crop_pct=1.0,
     ),
 
     'swinv2_3d_tiny_window8_256.ms_in1k': _cfg(
@@ -878,12 +937,12 @@ default_cfgs = generate_default_cfgs({
     'swinv2_3d_base_window12_192.ms_in22k': _cfg(
         hf_hub_id='timm/',
         url='https://github.com/SwinTransformer/storage/releases/download/v2.0.0/swinv2_base_patch4_window12_192_22k.pth',
-        num_classes=21841, input_size=(3, 192, 192, 32), pool_size=(6, 6)
+        num_classes=21841, input_size=(3, 192, 192, 64), pool_size=(6, 6)
     ),
     'swinv2_3d_large_window12_192.ms_in22k': _cfg(
         hf_hub_id='timm/',
         url='https://github.com/SwinTransformer/storage/releases/download/v2.0.0/swinv2_large_patch4_window12_192_22k.pth',
-        num_classes=21841, input_size=(3, 192, 192, 32), pool_size=(6, 6)
+        num_classes=21841, input_size=(3, 192, 192, 64), pool_size=(6, 6)
     ),
 })
 
