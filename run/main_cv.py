@@ -105,19 +105,6 @@ def train(sweep_q, worker_q):
 
 FOLDS = [0, 1, 5]
 def main():
-    # Parse args
-    args = sys.argv[1:]
-    with TempSetContextManager(sys, 'argv', sys.argv[:1]):
-        cli = MyLightningCLI(
-            trainer_class=TrainerWandb, 
-            save_config_kwargs={
-                'config_filename': 'config_pl.yaml',
-                'overwrite': True,
-            },
-            args=[arg for arg in args if arg != 'fit'],
-            run=False,
-        )
-
     # Spin up workers before calling wandb.init()
     # Workers will be blocked on a queue waiting to start
     sweep_q = multiprocessing.Queue()
@@ -141,8 +128,7 @@ def main():
 
     # Start CV
     scores = collections.defaultdict(dict)
-    for val_dir_indices in FOLDS:
-        worker = workers[val_dir_indices]
+    for val_dir_indices, worker in zip(FOLDS, workers):
         # start worker
         worker.queue.put(
             WorkerInitData(
