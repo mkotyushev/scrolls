@@ -22,9 +22,11 @@ parameters:
     - swinv2_base_window12to24_192to384.ms_in22k_ft_in1k
   data.init_args.img_size:
     distribution: categorical
+    values:
     - 384
     - 768
   data.init_args.use_mix:
     distribution: categorical
+    values:
     - false
     - true
