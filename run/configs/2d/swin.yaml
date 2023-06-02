@@ -1,8 +1,3 @@
-trainer:
-  accumulate_grad_batches: 4
 model:
   init_args:
     backbone_name: swinv2_base_window12to24_192to384.ms_in22k_ft_in1k
-data:
-  init_args:
-    batch_size: 2
