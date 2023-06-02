@@ -174,9 +174,9 @@ class RandomCropVolumeInside2dMask:
             z_end = min(z_start + depth, kwargs['image'].shape[2])
 
         # Crop data
-        kwargs['image'] = kwargs['image'][h_start:h_end, w_start:w_end, z_start:z_end]
+        kwargs['image'] = kwargs['image'][h_start:h_end, w_start:w_end, z_start:z_end].copy()
         for i in range(len(kwargs['masks'])):
-            kwargs['masks'][i] = kwargs['masks'][i][h_start:h_end, w_start:w_end]
+            kwargs['masks'][i] = kwargs['masks'][i][h_start:h_end, w_start:w_end].copy()
 
         return kwargs
 
