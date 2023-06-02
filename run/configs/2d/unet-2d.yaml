@@ -112,11 +112,11 @@ data:
       - /workspace/data/fragments_z_shift_scale/train/3
     surface_volume_dirs_test: null
     val_dir_indices: 1
-    z_start: 20
-    z_end: 44
+    z_start: 27
+    z_end: 36
     img_size: 256
-    img_size_z: 12
-    z_scale_limit: 2.0
+    img_size_z: 6
+    z_scale_limit: 1.5
     resize_xy: crop
     use_imagenet_stats: true
     use_mix: false
