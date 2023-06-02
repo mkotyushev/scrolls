@@ -2,7 +2,7 @@ trainer:
   accumulate_grad_batches: 2
 model:
   init_args:
-    backbone_name: convnextv2_base.fcmae_ft_in22k_in1k_384
+    backbone_name: caformer_b36.sail_in22k_ft_in1k_384
 data:
   init_args:
     batch_size: 4
