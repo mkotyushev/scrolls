@@ -111,7 +111,7 @@ data:
       - /workspace/data/fragments_z_shift_scale_cropped/train/2d
       - /workspace/data/fragments_z_shift_scale/train/3
     surface_volume_dirs_test: null
-    val_dir_indices: 1
+    val_dir_indices: 5
     z_start: 27
     z_end: 36
     img_size: 256
