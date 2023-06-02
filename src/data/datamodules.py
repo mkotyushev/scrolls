@@ -335,7 +335,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 CenterCropVolume(
                     height=None, 
                     width=None,
-                    depth=self.hparams.img_size_z,
+                    depth=math.ceil(self.hparams.img_size_z * self.hparams.z_scale_limit),
                     strict=True,
                     always_apply=True,
                     p=1.0,
@@ -343,7 +343,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 ResizeVolume(
                     height=self.hparams.img_size, 
                     width=self.hparams.img_size,
-                    depth=None,
+                    depth=self.hparams.img_size_z,
                     always_apply=True,
                 ),
                 A.Normalize(
