@@ -63,7 +63,7 @@ model:
   init_args:
     type_: 2d
     decoder_attention_type: null
-    in_channels: 12
+    in_channels: 6
     backbone_name: null
     log_preview_every_n_epochs: 5
     tta_each_n_epochs: -1
