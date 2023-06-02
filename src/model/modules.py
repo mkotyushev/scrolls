@@ -392,6 +392,20 @@ backbone_name_to_params = {
         'decoder_out_channels': (256, 128, 64),
         'format': 'NCHW',
     },
+    'maxvit': {
+        'upsampling': 4,
+        'decoder_channels': (256, 128, 64),
+        'decoder_mid_channels': (256, 128, 64),
+        'decoder_out_channels': (256, 128, 64),
+        'format': 'NCHW',
+    },
+    'caformer': {
+        'upsampling': 4,
+        'decoder_channels': (256, 128, 64),
+        'decoder_mid_channels': (256, 128, 64),
+        'decoder_out_channels': (256, 128, 64),
+        'format': 'NCHW',
+    },
 }
 
 
