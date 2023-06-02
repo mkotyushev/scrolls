@@ -14,8 +14,6 @@ from src.utils.utils import (
 )
 
 
-TIMEOUT_S = 1200
-
 # Set up logging
 logging.basicConfig(
     level=logging.ERROR,
@@ -123,7 +121,7 @@ def main():
     # Workers will be blocked on a queue waiting to start
     sweep_q = multiprocessing.Queue()
     workers = []
-    for fold_index in range(cli.config.data.init_args.k):
+    for fold_index in [0, 1, 5]:
         q = multiprocessing.Queue()
         p = multiprocessing.Process(
             target=train, kwargs=dict(sweep_q=sweep_q, worker_q=q)
@@ -141,6 +139,7 @@ def main():
     sweep_run_name = sweep_run.name or sweep_run.id or "unknown"
 
     # Start CV
+    scores = collections.defaultdict(dict)
     for fold_index in range(cli.config.data.init_args.k):
         worker = workers[fold_index]
         # start worker
@@ -153,13 +152,10 @@ def main():
             )
         )
 
-    # Collect results
-    scores = collections.defaultdict(dict)
-    for _ in range(cli.config.data.init_args.k):
         # get metric from worker
-        result = sweep_q.get(timeout=TIMEOUT_S)
+        result = sweep_q.get()
         # wait for worker to finish
-        worker.process.join(TIMEOUT_S)
+        worker.process.join()
         if worker.process.is_alive():
             print("Worker timed out")
             worker.process.terminate()

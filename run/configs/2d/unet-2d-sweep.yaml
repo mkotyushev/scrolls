@@ -1,0 +1,30 @@
+program: run/main_cv.py
+command:
+  - ${env}
+  - /root/miniconda3/envs/scrolls/bin/python
+  - ${program}
+  - fit
+  - --config
+  - run/configs/2d/unet-2d.yaml
+  - ${args}
+method: grid
+parameters:
+  trainer.max_epochs:
+    distribution: categorical
+    values: 
+    - 48
+  model.init_args.backbone_name:
+    distribution: categorical
+    values: 
+    - caformer_b36.sail_in22k_ft_in1k_384
+    - convnextv2_base.fcmae_ft_in22k_in1k_384
+    - maxvit_rmlp_base_rw_384.sw_in12k_ft_in1k
+    - swinv2_base_window12to24_192to384.ms_in22k_ft_in1k
+  data.init_args.img_size:
+    distribution: categorical
+    - 384
+    - 768
+  data.init_args.use_mix:
+    distribution: categorical
+    - false
+    - true
