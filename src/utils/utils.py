@@ -1,5 +1,6 @@
 import logging
 import math
+import os
 import cv2
 import numpy as np
 import torch
@@ -662,9 +663,10 @@ def rle(img):
 
 
 class PredictionWriter(BasePredictionWriter):
-    def __init__(self, output_path):
+    def __init__(self, output_path, images_output_dir=None):
         super().__init__('batch_and_epoch')
         self.output_path = output_path
+        self.images_output_dir = images_output_dir
         self.aggregator = PredictionTargetPreviewAgg(
             preview_downscale=None,
             metrics=None,
@@ -707,3 +709,11 @@ class PredictionWriter(BasePredictionWriter):
                 starts_ix, lengths = rle(proba)
                 inklabels_rle = " ".join(map(str, sum(zip(starts_ix, lengths), ())))
                 print(f"{id_}," + inklabels_rle, file=f, end="\n" if i != len(ids) - 1 else "")
+        
+        # Save images
+        if self.images_output_dir is not None:
+            for i, (id_, proba) in tqdm(enumerate(zip(ids, probas))):
+                cv2.imwrite(
+                    os.path.join(self.images_output_dir, f'{id_}.png'),
+                    (proba * 255).astype(np.uint8),
+                )

@@ -8,6 +8,7 @@ trainer:
     - class_path: src.utils.utils.PredictionWriter
       init_args:
         output_path: ./submission.csv
+        images_output_dir: .
     - class_path: lightning.pytorch.callbacks.LearningRateMonitor
       init_args:
         logging_interval: step
