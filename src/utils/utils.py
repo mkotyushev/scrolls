@@ -687,7 +687,7 @@ class PredictionWriter(BasePredictionWriter):
             # Generate random alphanumeric string, seed is calculated from
             # sys.argv to make it reproducible but different for different
             # runs. Use numpy random
-            seed = hash(tuple(sys.argv))
+            seed = hash(tuple(sys.argv)) % (2 ** 32)
             with temp_seed(seed):
                 image_postfix = ''.join(
                     np.random.choice(list(string.ascii_letters + string.digits))
