@@ -371,114 +371,81 @@ class SurfaceVolumeDatamodule(LightningDataModule):
             if self.hparams.resize_xy in ['resize', 'none'] else \
             self.hparams.img_size // 2
 
-        if self.train_dataset is None:
-            if (
-                self.val_dataset is None and 
-                self.hparams.val_dir_indices is not None and
-                self.hparams.val_dir_indices
-            ):
-                # Train
-                train_surface_volume_dirs = [
-                    d for i, d in enumerate(self.hparams.surface_volume_dirs)
-                    if i not in self.hparams.val_dir_indices
-                ]
-                
-                volumes, \
-                scroll_masks, \
-                ir_images, \
-                ink_masks, \
-                subtracts, \
-                divides = \
-                    read_data(
-                        train_surface_volume_dirs, 
-                        z_start=self.hparams.z_start,
-                        z_end=self.hparams.z_end,
-                    )
-                
-                # Update mean and std
-                if not self.hparams.use_imagenet_stats:
-                    self.train_volume_mean, self.train_volume_std = \
-                        calc_mean_std(volumes, scroll_masks)
-                
-                self.train_dataset = InMemorySurfaceVolumeDataset(
-                    volumes=volumes, 
-                    scroll_masks=scroll_masks, 
-                    pathes=train_surface_volume_dirs,
-                    ir_images=ir_images, 
-                    ink_masks=ink_masks,
-                    transform=self.train_transform,
-                    transform_mix=self.train_transform_mix,
-                    # Patches are generated in dataloader randomly 
-                    # or whole volume is provided
-                    patch_size=None,
-                    subtracts=subtracts,
-                    divides=divides,
-                )
-
-                val_surface_volume_dirs = [
-                    d for i, d in enumerate(self.hparams.surface_volume_dirs)
-                    if i in self.hparams.val_dir_indices
-                ]
-
-                volumes, \
-                scroll_masks, \
-                ir_images, \
-                ink_masks, \
-                subtracts, \
-                divides = \
-                    read_data(
-                        val_surface_volume_dirs, 
-                        z_start=self.hparams.z_start,
-                        z_end=self.hparams.z_end,
-                    )
-                
-                self.val_dataset = InMemorySurfaceVolumeDataset(
-                    volumes=volumes, 
-                    scroll_masks=scroll_masks, 
-                    pathes=val_surface_volume_dirs,
-                    ir_images=ir_images, 
-                    ink_masks=ink_masks,
-                    transform=self.val_transform,
-                    patch_size=val_test_patch_size,
-                    patch_step=val_test_patch_step,
-                    subtracts=subtracts,
-                    divides=divides,
-                )
-            else:
-                volumes, \
-                scroll_masks, \
-                ir_images, \
-                ink_masks, \
-                subtracts, \
-                divides = \
-                    read_data(
-                        self.hparams.surface_volume_dirs, 
-                        z_start=self.hparams.z_start,
-                        z_end=self.hparams.z_end,
-                    )
-                
-                # Update mean and std
-                if not self.hparams.use_imagenet_stats:
-                    self.train_volume_mean, self.train_volume_std = \
-                        calc_mean_std(volumes, scroll_masks)
-
-                self.train_dataset = InMemorySurfaceVolumeDataset(
-                    volumes=volumes, 
-                    scroll_masks=scroll_masks, 
-                    pathes=self.hparams.surface_volume_dirs,
-                    ir_images=ir_images, 
-                    ink_masks=ink_masks,
-                    transform=self.train_transform,
-                    transform_mix=self.train_transform_mix,
-                    patch_size=None,  # patches are generated in dataloader randomly
-                    subtracts=subtracts,
-                    divides=divides,
-                )
-                self.val_dataset = None
+        # Train
+        train_surface_volume_dirs, val_surface_volume_dirs = [], []
         if (
-            self.test_dataset is None and 
-            self.hparams.surface_volume_dirs_test is not None
+            self.hparams.surface_volume_dirs is not None and 
+            self.hparams.val_dir_indices is not None
         ):
+            train_surface_volume_dirs = [
+                d for i, d in enumerate(self.hparams.surface_volume_dirs)
+                if i not in self.hparams.val_dir_indices
+            ]
+            val_surface_volume_dirs = [
+                d for i, d in enumerate(self.hparams.surface_volume_dirs)
+                if i in self.hparams.val_dir_indices
+            ]
+
+        if self.train_dataset is None and train_surface_volume_dirs:
+            volumes, \
+            scroll_masks, \
+            ir_images, \
+            ink_masks, \
+            subtracts, \
+            divides = \
+                read_data(
+                    train_surface_volume_dirs, 
+                    z_start=self.hparams.z_start,
+                    z_end=self.hparams.z_end,
+                )
+            
+            # Update mean and std
+            if not self.hparams.use_imagenet_stats:
+                self.train_volume_mean, self.train_volume_std = \
+                    calc_mean_std(volumes, scroll_masks)
+            
+            self.train_dataset = InMemorySurfaceVolumeDataset(
+                volumes=volumes, 
+                scroll_masks=scroll_masks, 
+                pathes=train_surface_volume_dirs,
+                ir_images=ir_images, 
+                ink_masks=ink_masks,
+                transform=self.train_transform,
+                transform_mix=self.train_transform_mix,
+                # Patches are generated in dataloader randomly 
+                # or whole volume is provided
+                patch_size=None,
+                subtracts=subtracts,
+                divides=divides,
+            )
+
+        if self.val_dataset is None and val_surface_volume_dirs:
+            volumes, \
+            scroll_masks, \
+            ir_images, \
+            ink_masks, \
+            subtracts, \
+            divides = \
+                read_data(
+                    val_surface_volume_dirs, 
+                    z_start=self.hparams.z_start,
+                    z_end=self.hparams.z_end,
+                )
+            
+            self.val_dataset = InMemorySurfaceVolumeDataset(
+                volumes=volumes, 
+                scroll_masks=scroll_masks, 
+                pathes=val_surface_volume_dirs,
+                ir_images=ir_images, 
+                ink_masks=ink_masks,
+                transform=self.val_transform,
+                patch_size=val_test_patch_size,
+                patch_step=val_test_patch_step,
+                subtracts=subtracts,
+                divides=divides,
+            )
+
+        if self.test_dataset is None and self.hparams.surface_volume_dirs_test is not None:
             volumes, \
             scroll_masks, \
             ir_images, \

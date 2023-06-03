@@ -416,6 +416,7 @@ def build_segmentation(
     decoder_attention_type=None, 
     img_size=256,
     grad_checkpointing=False,
+    pretrained=True,
 ):
     """Build segmentation model."""
     backbone_param_key = backbone_name.split('_')[0]
@@ -427,7 +428,7 @@ def build_segmentation(
         encoder_2d = timm.create_model(
             backbone_name, 
             features_only=True,
-            pretrained=True,
+            pretrained=pretrained,
             **create_model_kwargs,
         )
         with patch('timm.models.swin_transformer_v2.SwinTransformerV2', SwinTransformerV2Pseudo3d):
@@ -464,7 +465,7 @@ def build_segmentation(
         encoder_2d = timm.create_model(
             backbone_name, 
             features_only=True,
-            pretrained=True,
+            pretrained=pretrained,
             **create_model_kwargs,
         )
         # default _update_default_kwargs is cheching for input shape to be 3D (4D in this case)
@@ -483,7 +484,7 @@ def build_segmentation(
             encoder, 
             new_in_channels=1,
             default_in_channels=3, 
-            pretrained=True,
+            pretrained=pretrained,
             conv_type=nn.Conv3d,
         )
         encoder.set_grad_checkpointing(grad_checkpointing)
@@ -508,7 +509,7 @@ def build_segmentation(
         encoder = timm.create_model(
             backbone_name, 
             features_only=True,
-            pretrained=True,
+            pretrained=pretrained,
             **create_model_kwargs,
         )
 
@@ -518,7 +519,7 @@ def build_segmentation(
             encoder, 
             new_in_channels=in_channels,
             default_in_channels=3, 
-            pretrained=True,
+            pretrained=pretrained,
             conv_type=nn.Conv2d,
         )
         encoder.set_grad_checkpointing(grad_checkpointing)
@@ -550,14 +551,14 @@ def build_segmentation(
             encoder = timm.create_model(
                 backbone_name, 
                 features_only=True,
-                pretrained=True,
+                pretrained=pretrained,
                 **create_model_kwargs,
             )
         patch_first_conv(
             encoder, 
             new_in_channels=1,
             default_in_channels=3, 
-            pretrained=True,
+            pretrained=pretrained,
             conv_type=nn.Conv2d,
         )
         if grad_checkpointing:
@@ -606,6 +607,7 @@ class SegmentationModule(BaseModule):
         log_preview_every_n_epochs: int = 10,
         tta_each_n_epochs: int = 10,
         tta_n_random_replays: int = 0,
+        pretrained: bool = True,
         label_smoothing: float = 0.0,
         pos_weight: float = 1.0,
         optimizer_init: Optional[Dict[str, Any]] = None,
@@ -639,6 +641,7 @@ class SegmentationModule(BaseModule):
             decoder_attention_type=decoder_attention_type,
             img_size=img_size,
             grad_checkpointing=grad_checkpointing,
+            pretrained=pretrained,
         )
 
         if finetuning is not None and finetuning['unfreeze_before_epoch'] == 0:
@@ -660,6 +663,9 @@ class SegmentationModule(BaseModule):
             preds = self.tta(batch['image'])
         else:
             preds = self.model(batch['image'])
+        
+        if 'mask_2' not in batch:
+            return None, None, preds
 
         # 3d_acs_weights outputs probabilities, not logits
         weight = torch.where(
@@ -866,7 +872,11 @@ class SegmentationModule(BaseModule):
         """Extract preds and targets from batch.
         Could be overriden for custom batch / prediction structure.
         """
-        y, y_pred = batch['mask_2'].detach(), preds.detach().float()
-        y, y_pred = self.remove_nans(y, y_pred)
-        y_pred = torch.sigmoid(y_pred).squeeze(1)
+        y = None
+        y_pred = torch.sigmoid(preds.detach().float()).squeeze(1)
+        
+        if 'mask_2' in batch:
+            y = batch['mask_2'].detach()
+            y, y_pred = self.remove_nans(y, y_pred)
+        
         return y, y_pred

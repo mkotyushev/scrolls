@@ -5,6 +5,9 @@ trainer:
     init_args:
       project: scrolls
   callbacks:
+    - class_path: src.utils.utils.PredictionWriter
+      init_args:
+        output_path: ./submission.csv
     - class_path: lightning.pytorch.callbacks.LearningRateMonitor
       init_args:
         logging_interval: step
@@ -76,6 +79,7 @@ model:
     log_preview_every_n_epochs: 5
     tta_each_n_epochs: -1
     tta_n_random_replays: 0
+    pretrained: true
     pos_weight: 1.0
     label_smoothing: 0.0
     optimizer_init: 

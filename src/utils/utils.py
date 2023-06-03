@@ -18,6 +18,7 @@ from timm.models import FeatureListNet
 from patchify import unpatchify, NonUniformStepSizeError
 from torchvision.utils import make_grid
 from scipy import interpolate, optimize
+from tqdm import tqdm
 
 from src.model.unet_3d_acs import AcsConvnextWrapper
 from src.model.swin_transformer_v2_3d import nhwdc_to, Format as Format3d
@@ -287,21 +288,23 @@ class PredictionTargetPreviewAgg(nn.Module):
         self, 
         input: torch.Tensor,
         probas: torch.Tensor, 
-        target: torch.Tensor, 
         mask: torch.LongTensor,
         indices: torch.LongTensor, 
         pathes: list[str], 
         shape_patches: torch.LongTensor,
         shape_original: torch.LongTensor,
+        target: Optional[torch.Tensor] = None, 
     ):
         # To CPU & types
-        input, probas, target, mask, indices, shape_patches = \
+        input, probas, mask, indices, shape_patches = \
             input.cpu().float().numpy(), \
             probas.cpu().float().numpy(), \
-            target.cpu().float().numpy(), \
             mask.cpu().long().numpy(), \
             indices.cpu().long().numpy(), \
             shape_patches.cpu().long().numpy()
+    
+        if target is not None:
+            target = target.cpu().float().numpy()
 
         patch_size = probas.shape[-2:]
 
@@ -327,10 +330,12 @@ class PredictionTargetPreviewAgg(nn.Module):
                 input[i]
             self.previews[f'proba_{path}'][patch_index_h, patch_index_w] = \
                 probas[i]
-            self.previews[f'target_{path}'][patch_index_h, patch_index_w] = \
-                target[i]
             self.previews[f'mask_{path}'][patch_index_h, patch_index_w] = \
                 mask[i]
+        
+            if target is not None:
+                self.previews[f'target_{path}'][patch_index_h, patch_index_w] = \
+                    target[i]
     
     def compute(self):
         # Unpatchify
@@ -361,6 +366,7 @@ class PredictionTargetPreviewAgg(nn.Module):
                 self.previews[name][mask] = 0
 
         # Compute metrics if available
+        metric_values = None
         if self.metrics is not None:
             preds, targets = [], []
             for name in self.previews:
@@ -637,8 +643,8 @@ def rle(img):
 
 
 class PredictionWriter(BasePredictionWriter):
-    def __init__(self, output_path, write_interval):
-        super().__init__(write_interval)
+    def __init__(self, output_path):
+        super().__init__('batch_and_epoch')
         self.output_path = output_path
         self.aggregator = PredictionTargetPreviewAgg(
             preview_downscale=None,
@@ -648,11 +654,11 @@ class PredictionWriter(BasePredictionWriter):
     def write_on_batch_end(
         self, trainer, pl_module, prediction, batch_indices, batch, batch_idx, dataloader_idx
     ):
-        y, y_pred = pl_module.extract_targets_and_probas_for_metric(prediction, batch)
+        _, y_pred = pl_module.extract_targets_and_probas_for_metric(prediction, batch)
         self.aggregator.update(
             batch['image'][..., batch['image'].shape[-1] // 2],
             y_pred, 
-            y, 
+            target=None, 
             mask=batch['mask_0'],
             pathes=batch['path'],
             indices=batch['indices'], 
@@ -662,7 +668,7 @@ class PredictionWriter(BasePredictionWriter):
 
     def write_on_epoch_end(self, trainer, pl_module, predictions, batch_indices):
         # Get predictions as images
-        captions, previews = self.aggregator.compute()
+        _, captions, previews = self.aggregator.compute()
         self.aggregator.reset()
         
         ids, probas = [], []
@@ -672,12 +678,12 @@ class PredictionWriter(BasePredictionWriter):
                 probas.append(preview)
 
         # Sort by id
-        ids, probas = zip(*sorted(zip(ids, probas), key=lambda x: int(x[0])))
+        ids, probas = zip(*sorted(zip(ids, probas), key=lambda x: x[0]))
         
         # Save
         with open(self.output_path, 'w') as f:
             print("Id,Predicted\n", file=f)
-            for i, (id_, proba) in enumerate(zip(ids, probas)):
+            for i, (id_, proba) in tqdm(enumerate(zip(ids, probas))):
                 starts_ix, lengths = rle(proba)
                 inklabels_rle = " ".join(map(str, sum(zip(starts_ix, lengths), ())))
                 print(f"{id_}," + inklabels_rle, file=f, end="\n" if i != len(ids) - 1 else "")
