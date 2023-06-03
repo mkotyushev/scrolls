@@ -54,6 +54,18 @@ if args.z_start is not None:
 if args.z_end is not None:
     z_end = z_end
 
+# Build transform
+mapping_lib_path = os.path.abspath(__file__).replace('scale.py', 'mapping.so')
+lib = ctypes.CDLL(mapping_lib_path)
+lib.mapping.restype = ctypes.c_int
+lib.mapping.argtypes = (
+    ctypes.POINTER(ctypes.c_longlong), 
+    ctypes.POINTER(ctypes.c_double), 
+    ctypes.c_int, 
+    ctypes.c_int, 
+    ctypes.c_void_p
+)
+
 # Read data (partially):
 # input_coordinates[2] = (z_start + output_coordinates[2] - shift) / scale;
 z_start_input = np.floor(((z_start - z_shifts[0]) / z_scales[0]).min()).astype(np.int32)
@@ -65,12 +77,6 @@ logger.info(f'Reading slices {z_start_input} to {z_end_input}')
 volumes, scroll_masks, ir_images, ink_masks, subtracts, divides = \
     read_data([args.input_dir], z_start=z_start_input, z_end=z_end_input)
 
-# Build transform
-mapping_lib_path = os.path.abspath(__file__).replace('scale.py', 'mapping.so')
-lib = ctypes.CDLL(mapping_lib_path)
-lib.f.restype = ctypes.c_double
-lib.f.argtypes = (ctypes.c_int, ctypes.POINTER(ctypes.c_double), ctypes.c_void_p)
-
 # z_start, n_rows, n_cols, flattened shift array, flattened scale array
 # as single array double
 user_data = np.concatenate(
@@ -81,7 +87,8 @@ user_data = np.concatenate(
     ],
     dtype=np.double,
 )
-user_data = ctypes.cast(user_data, ctypes.c_void_p)
+user_data = np.ascontiguousarray(user_data)
+user_data = ctypes.c_void_p(user_data.__array_interface__['data'][0])
 func = LowLevelCallable(lib.mapping, user_data)
 
 # Apply z shift and scale maps
