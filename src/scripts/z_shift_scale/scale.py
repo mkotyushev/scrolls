@@ -66,7 +66,8 @@ volumes, scroll_masks, ir_images, ink_masks, subtracts, divides = \
     read_data([args.input_dir], z_start=z_start_input, z_end=z_end_input)
 
 # Build transform
-lib = ctypes.CDLL(os.path.abspath('mapping.so'))
+mapping_lib_path = os.path.abspath(__file__).replace('scale.py', 'mapping.so')
+lib = ctypes.CDLL(mapping_lib_path)
 lib.f.restype = ctypes.c_double
 lib.f.argtypes = (ctypes.c_int, ctypes.POINTER(ctypes.c_double), ctypes.c_void_p)
 
