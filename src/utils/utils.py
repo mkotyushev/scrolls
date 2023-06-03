@@ -1,6 +1,10 @@
+import contextlib
 import logging
 import math
 import os
+import random
+import string
+import sys
 import cv2
 import numpy as np
 import torch
@@ -662,11 +666,35 @@ def rle(img):
     return starts_ix, lengths
 
 
+# https://stackoverflow.com/questions/49555991/
+# can-i-create-a-local-numpy-random-seed
+@contextlib.contextmanager
+def temp_seed(seed):
+    state = np.random.get_state()
+    np.random.seed(seed)
+    try:
+        yield
+    finally:
+        np.random.set_state(state)
+
+
 class PredictionWriter(BasePredictionWriter):
-    def __init__(self, output_path, images_output_dir=None):
+    def __init__(self, output_path, images_output_dir=None, image_postfix=None):
         super().__init__('batch_and_epoch')
         self.output_path = output_path
         self.images_output_dir = images_output_dir
+        if image_postfix is None:
+            # Generate random alphanumeric string, seed is calculated from
+            # sys.argv to make it reproducible but different for different
+            # runs. Use numpy random
+            seed = hash(tuple(sys.argv))
+            with temp_seed(seed):
+                image_postfix = ''.join(
+                    np.random.choice(list(string.ascii_letters + string.digits))
+                    for _ in range(10)
+                )
+
+        self.image_postfix = image_postfix
         self.aggregator = PredictionTargetPreviewAgg(
             preview_downscale=None,
             metrics=None,
@@ -713,7 +741,5 @@ class PredictionWriter(BasePredictionWriter):
         # Save images
         if self.images_output_dir is not None:
             for i, (id_, proba) in tqdm(enumerate(zip(ids, probas))):
-                cv2.imwrite(
-                    os.path.join(self.images_output_dir, f'{id_}.png'),
-                    (proba * 255).astype(np.uint8),
-                )
+                out_path = os.path.join(self.images_output_dir, f'{id_}_{self.image_postfix}.png')
+                cv2.imwrite(out_path, (proba * 255).astype(np.uint8))
