@@ -682,7 +682,7 @@ class PredictionWriter(BasePredictionWriter):
         
         # Save
         with open(self.output_path, 'w') as f:
-            print("Id,Predicted\n", file=f)
+            print("Id,Predicted", file=f)
             for i, (id_, proba) in tqdm(enumerate(zip(ids, probas))):
                 starts_ix, lengths = rle(proba)
                 inklabels_rle = " ".join(map(str, sum(zip(starts_ix, lengths), ())))
