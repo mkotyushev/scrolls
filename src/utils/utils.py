@@ -683,6 +683,7 @@ class PredictionWriter(BasePredictionWriter):
             indices=batch['indices'], 
             shape_patches=batch['shape_patches'],
             shape_original=batch['shape_original'],
+            shape_before_padding=batch['shape_before_padding'],
         )
 
     def write_on_epoch_end(self, trainer, pl_module, predictions, batch_indices):
