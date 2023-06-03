@@ -1,16 +1,17 @@
 
 import argparse
-import gc
+import ctypes
 import logging
+import os
 import cv2
-from pathlib import Path
 import numpy as np
+from pathlib import Path
 from scipy.ndimage import geometric_transform
+from scipy import LowLevelCallable
 
-from src.data.datamodules import read_data
-from src.data.datasets import build_z_shift_scale_maps
+from src.data.datamodules import N_SLICES, read_data
 
-# Usage: python src/scripts/z_shift_scale.py --input_dir /workspace/data/fragments/train/2 --output_dir /workspace/data/fragments_z_shift_scale/train/2 --z_shift_path z_shift.npy --z_scale_path z_scale.npy --z_start 20 --z_end 44
+# Usage: python src/scripts/z_shift_scale/scale.py --input_dir /workspace/data/fragments/train/2 --output_dir /workspace/data/fragments_z_shift_scale/train/2 --z_shift_path z_shift.npy --z_scale_path z_scale.npy --z_start 20 --z_end 44
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -39,34 +40,53 @@ for path in args.input_dir.glob('**/*'):
         path_out.parent.mkdir(parents=True, exist_ok=True)
         path_out.write_bytes(path.read_bytes())
 
-# Read full data
-volumes, scroll_masks, ir_images, ink_masks, subtracts, divides = \
-    read_data([args.input_dir])
-
 # Read z shift and scale maps
 z_shifts = [np.load(args.z_shift_path)]
 z_scales = [np.load(args.z_scale_path)]
 
+logger.info(f'z_shifts: ({z_shifts[0].min()}, {z_shifts[0].max()})')
+logger.info(f'z_scales: ({z_scales[0].min()}, {z_scales[0].max()})')
+
 # Get z range
-z_start, z_end = 0, volumes[0].shape[2]
+z_start, z_end = 0, N_SLICES
 if args.z_start is not None:
     z_start = z_start
 if args.z_end is not None:
     z_end = z_end
 
-def z_shift_scale_map(x):
-    shift, scale = z_shifts[0][x[0], x[1]], z_scales[0][x[0], x[1]]       
-    z = (z_start + x[2] - shift) / scale  # assuming non-zero scale
-    return (
-        x[0], 
-        x[1], 
-        z
-    )
+# Read data (partially):
+# input_coordinates[2] = (z_start + output_coordinates[2] - shift) / scale;
+z_start_input = np.floor(((z_start - z_shifts[0]) / z_scales[0]).min()).astype(np.int32)
+z_end_input = (np.ceil(((z_end - z_shifts[0]) / z_scales[0]).max()) + 1).astype(np.int32)
+z_start_input = max(0, z_start_input)
+z_end_input = min(N_SLICES, z_end_input)
+
+logger.info(f'Reading slices {z_start_input} to {z_end_input}')
+volumes, scroll_masks, ir_images, ink_masks, subtracts, divides = \
+    read_data([args.input_dir], z_start=z_start_input, z_end=z_end_input)
+
+# Build transform
+lib = ctypes.CDLL(os.path.abspath('mapping.so'))
+lib.f.restype = ctypes.c_double
+lib.f.argtypes = (ctypes.c_int, ctypes.POINTER(ctypes.c_double), ctypes.c_void_p)
+
+# z_start, n_rows, n_cols, flattened shift array, flattened scale array
+# as single array double
+user_data = np.concatenate(
+    [
+        np.array([z_start, z_start_input, volumes[0].shape[0], volumes[0].shape[1]], dtype=np.double),
+        z_shifts[0].flatten().astype(np.double),
+        z_scales[0].flatten().astype(np.double),
+    ],
+    dtype=np.double,
+)
+user_data = ctypes.cast(user_data, ctypes.c_void_p)
+func = LowLevelCallable(lib.mapping, user_data)
 
 # Apply z shift and scale maps
 volume_transformed = geometric_transform(
     volumes[0],
-    z_shift_scale_map,
+    func,
     output_shape=(volumes[0].shape[0], volumes[0].shape[1], z_end - z_start),
     order=1,
 )

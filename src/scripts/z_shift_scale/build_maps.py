@@ -8,7 +8,7 @@ from pathlib import Path
 from src.data.datamodules import read_data
 from src.data.datasets import build_z_shift_scale_maps
 
-# Usage: python src/scripts/build_z_shift_scale.py --input_dir /workspace/data/fragments/train/2 --downscaled_input_dir /workspace/data/fragments_downscaled_2/train/2 --output_dir . --patch_size 128 --downscale_factor 2
+# Usage: python src/scripts/z_shift_scale/build_maps.py --input_dir /workspace/data/fragments/train/2 --downscaled_input_dir /workspace/data/fragments_downscaled_2/train/2 --output_dir . --patch_size 128 --downscale_factor 2
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
