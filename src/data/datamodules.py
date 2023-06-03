@@ -48,9 +48,8 @@ def read_data(surface_volume_dirs, z_start=None, z_end=None):
                 cv2.IMREAD_UNCHANGED
             )
             if volume is None:
-                volume = np.zeros((z_end - z_start, *v.shape), dtype=np.uint16)
-            volume[i] = v
-        volume = np.stack(volume).transpose(1, 2, 0)
+                volume = np.zeros((*v.shape, z_end - z_start), dtype=np.uint16)
+            volume[..., i] = v
         volumes.append(volume)
 
     # Masks: binary masks of scroll regions

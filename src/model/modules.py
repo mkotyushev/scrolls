@@ -13,16 +13,15 @@ from torchmetrics import Metric
 from torchmetrics.classification import BinaryFBetaScore
 from lightning.pytorch.utilities import grad_norm
 from unittest.mock import patch
-from acsconv.operators import ACSConv
-from src.data.transforms import Tta
+from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 
+from src.data.transforms import Tta
 from src.model.smp import Unet, patch_first_conv
 from src.model.swin_transformer_v2_pseudo_3d import (
     SwinTransformerV2Pseudo3d, 
     map_pretrained_2d_to_pseudo_3d, 
 )
 from src.model.swin_transformer_v2_3d import (
-    SwinTransformerV2 as SwinTransformerV23D,
     map_pretrained_2d_to_3d, 
     _update_default_kwargs,
     Format as Format3d,
@@ -37,7 +36,6 @@ from src.utils.utils import (
     PredictionTargetPreviewGrid, 
     get_feature_channels, 
     state_norm,
-    convert_to_grayscale
 )
 
 
@@ -696,6 +694,8 @@ class SegmentationModule(BaseModule):
                             'f05': BinaryFBetaScore(beta=0.5),
                         }
                     ),
+                    input_std=sum(IMAGENET_DEFAULT_STD) / 3,
+                    input_mean=sum(IMAGENET_DEFAULT_MEAN) / 3,
                 ),
             }
         )
@@ -789,12 +789,13 @@ class SegmentationModule(BaseModule):
                 metric.update(
                     batch['image'][..., batch['image'].shape[-1] // 2],
                     y_pred, 
-                    y, 
+                    target=y, 
                     mask=batch['mask_0'],
                     pathes=batch['path'],
                     indices=batch['indices'], 
                     shape_patches=batch['shape_patches'],
                     shape_original=batch['shape_original'],
+                    shape_before_padding=batch['shape_before_padding'],
                 )
             else:
                 metric.update(y_pred_masked.flatten(), y_masked.flatten())

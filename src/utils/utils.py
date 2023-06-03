@@ -218,8 +218,9 @@ def get_feature_channels(model, input_shape, output_format='NHWC'):
     is_training = model.training
     model.eval()
     
-    x = torch.randn(1, *input_shape)
-    y = model(x)
+    x = torch.randn(1, *input_shape).to(next(model.parameters()).device)
+    with torch.no_grad():
+        y = model(x)
     channel_index = output_format.find('C')
     assert channel_index != -1, \
         f'output_format {output_format} not supported, must contain C'
@@ -240,7 +241,7 @@ def _unpatchify2d_avg(  # pylint: disable=too-many-locals
     assert len(patches.shape) == 4
 
     i_h, i_w = imsize
-    image = np.zeros(imsize, dtype=patches.dtype)
+    image = np.zeros(imsize, dtype=np.float16)
     counts = np.zeros(imsize, dtype=np.int32)
 
     n_h, n_w, p_h, p_w = patches.shape
@@ -267,22 +268,28 @@ def _unpatchify2d_avg(  # pylint: disable=too-many-locals
     counts[counts == 0] = 1
     image /= counts
 
+    image = image.astype(patches.dtype)
+
     return image, counts
 
 
 class PredictionTargetPreviewAgg(nn.Module):
     """Aggregate prediction and target patches to images with downscaling."""
-    def __init__(self, preview_downscale: Optional[int] = 4, metrics=None):
+    def __init__(self, preview_downscale: Optional[int] = 4, metrics=None, input_std=1, input_mean=0):
         super().__init__()
         self.preview_downscale = preview_downscale
         self.metrics = metrics
         self.previews = {}
         self.shapes = {}
+        self.shapes_before_padding = {}
+        self.input_std = input_std
+        self.input_mean = input_mean
 
     def reset(self):
         # Note: metrics are reset in compute()
         self.previews = {}
         self.shapes = {}
+        self.shapes_before_padding = {}
 
     def update(
         self, 
@@ -293,18 +300,20 @@ class PredictionTargetPreviewAgg(nn.Module):
         pathes: list[str], 
         shape_patches: torch.LongTensor,
         shape_original: torch.LongTensor,
+        shape_before_padding: torch.LongTensor,
         target: Optional[torch.Tensor] = None, 
     ):
         # To CPU & types
-        input, probas, mask, indices, shape_patches = \
-            input.cpu().float().numpy(), \
-            probas.cpu().float().numpy(), \
-            mask.cpu().long().numpy(), \
+        input, probas, mask, indices, shape_patches, shape_before_padding = \
+            ((input.cpu().numpy() * self.input_std + self.input_mean) * 255).astype(np.uint8), \
+            probas.cpu().numpy().astype(np.float32), \
+            mask.cpu().numpy().astype(np.uint8), \
             indices.cpu().long().numpy(), \
-            shape_patches.cpu().long().numpy()
+            shape_patches.cpu().long().numpy(), \
+            shape_before_padding.cpu().long().numpy()
     
         if target is not None:
-            target = target.cpu().float().numpy()
+            target = target.cpu().numpy().astype(np.uint8)
 
         patch_size = probas.shape[-2:]
 
@@ -316,13 +325,14 @@ class PredictionTargetPreviewAgg(nn.Module):
                     *shape_patches[i].tolist(),
                     *patch_size,
                 ]
-                self.previews[f'input_{path}'] = np.zeros(shape, dtype=np.float32)
+                self.previews[f'input_{path}'] = np.zeros(shape, dtype=np.uint8)
                 self.previews[f'proba_{path}'] = np.zeros(shape, dtype=np.float32)
-                self.previews[f'target_{path}'] = np.zeros(shape, dtype=np.float32)
-                self.previews[f'mask_{path}'] = np.zeros(shape, dtype=np.float32)
+                self.previews[f'target_{path}'] = np.zeros(shape, dtype=np.uint8)
+                self.previews[f'mask_{path}'] = np.zeros(shape, dtype=np.uint8)
                 # hack to not change dict size later, actually computed in compute()
                 self.previews[f'counts_{path}'] = None
                 self.shapes[path] = shape_original[i].tolist()[:2]
+                self.shapes_before_padding[path] = shape_before_padding[i].tolist()[:2]
 
             patch_index_w, patch_index_h = indices[i].tolist()
 
@@ -348,7 +358,7 @@ class PredictionTargetPreviewAgg(nn.Module):
                     self.previews[name], 
                     shape_original
                 )
-                self.previews[name.replace('proba', 'counts')] = counts.astype(np.float32)
+                self.previews[name.replace('proba', 'counts')] = counts.astype(np.uint8)
             elif name.startswith('counts_'):
                 # Do nothing
                 pass
@@ -364,6 +374,15 @@ class PredictionTargetPreviewAgg(nn.Module):
             if name.startswith('proba_'):
                 mask = self.previews[name.replace('proba', 'mask')] == 0
                 self.previews[name][mask] = 0
+
+        # Crop to shape before padding
+        for name in self.previews:
+            path = '_'.join(name.split('_')[1:])
+            shape_before_padding = self.shapes_before_padding[path]
+            self.previews[name] = self.previews[name][
+                :shape_before_padding[0], 
+                :shape_before_padding[1],
+            ]
 
         # Compute metrics if available
         metric_values = None

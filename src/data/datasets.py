@@ -67,11 +67,13 @@ class InMemorySurfaceVolumeDataset:
         self.transform_mix = transform_mix
         if patch_step is None:
             patch_step = patch_size
-        self.patch_size = to_2tuple(patch_size)
-        self.patch_step = to_2tuple(patch_step)
+        self.patch_size = to_2tuple(patch_size) if patch_size is not None else None
+        self.patch_step = to_2tuple(patch_step) if patch_step is not None else None
+        self.patch_indices = None
         self.subtracts = subtracts
         self.divides = divides
         self.shape_original = None
+        self.shape_before_padding = None
 
         # Patchify
         if patch_size is not None:
@@ -84,11 +86,16 @@ class InMemorySurfaceVolumeDataset:
             self.indices, \
             self.subtracts, \
             self.divides, \
-            self.shape_original = \
+            self.shape_original, \
+            self.patch_indices, \
+            self.shape_before_padding = \
                 self.patchify_data()
 
     def __len__(self) -> int:
-        return len(self.volumes)
+        if self.patch_indices is None:
+            return len(self.volumes)
+        else:
+            return sum(map(len, self.patch_indices))
     
     def patchify_data(self):
         """Split data into patches."""
@@ -103,9 +110,14 @@ class InMemorySurfaceVolumeDataset:
             subtracts,
             divides,
             shape_original,
-        ) = [], [], [], [], [], [], [], [], [], []
+            patch_indices,
+            shape_before_padding,
+        ) = [], [], [], [], [], [], [], [], [], [], [], []
         for i in range(len(self.volumes)):
             # Patchify
+
+            # Shape before padding
+            shape_before_padding_patches = self.volumes[i].shape
 
             # Volume
             volume_patch_size = (*self.patch_size, self.volumes[i].shape[2])
@@ -116,6 +128,11 @@ class InMemorySurfaceVolumeDataset:
                 volume_patch_size, 
                 step=volume_patch_step
             ).squeeze(2)  # bug in patchify
+
+            shape_before_padding_patches = np.tile(
+                np.array(shape_before_padding_patches)[None, None, :],
+                [*volume_patches.shape[:2], 1],
+            )
 
             # Scroll mask
             scroll_mask = pad_divisible_2d(self.scroll_masks[i], self.patch_size, step=self.patch_step)
@@ -177,22 +194,9 @@ class InMemorySurfaceVolumeDataset:
                 [*volume_patches.shape[:2], 1],
             )
 
-            # Drop empty patches (no 1s in scroll mask)
+            # Generate indices, omit empty patches
             mask = (scroll_mask_patches > 0).any(axis=(-1, -2))
-            volume_patches = volume_patches[mask]
-            scroll_mask_patches = scroll_mask_patches[mask]
-            if ir_image_patches is not None:
-                ir_image_patches = ir_image_patches[mask]
-            if ink_mask_patches is not None:
-                ink_mask_patches = ink_mask_patches[mask]
-            pathes_patches = pathes_patches[mask]
-            shape_patches_patches = shape_patches_patches[mask]
-            indices_patches = indices_patches[mask]
-            if subtracts_patches is not None:
-                subtracts_patches = subtracts_patches[mask]
-            if divides_patches is not None:
-                divides_patches = divides_patches[mask]
-            shape_original_patches = shape_original_patches[mask]
+            patch_indices.append(np.argwhere(mask))
             
             # Append
             volumes.append(volume_patches)
@@ -209,30 +213,16 @@ class InMemorySurfaceVolumeDataset:
             if divides_patches is not None:
                 divides.append(divides_patches)
             shape_original.append(shape_original_patches)
+            shape_before_padding.append(shape_before_padding_patches)
 
-        # Concatenate
-        volumes = np.concatenate(volumes, axis=0)
-        scroll_masks = np.concatenate(scroll_masks, axis=0)
-        if len(ir_images) > 0:
-            ir_images = np.concatenate(ir_images, axis=0)
-        else:
+        if len(ir_images) == 0:
             ir_images = None
-        if len(ink_masks) > 0:
-            ink_masks = np.concatenate(ink_masks, axis=0)
-        else:
+        if len(ink_masks) == 0:
             ink_masks = None
-        pathes = np.concatenate(pathes, axis=0)
-        shape_patches = np.concatenate(shape_patches, axis=0)
-        indices = np.concatenate(indices, axis=0)
-        if len(subtracts) > 0:
-            subtracts = np.concatenate(subtracts, axis=0)
-        else:
+        if len(subtracts) == 0:
             subtracts = None
-        if len(divides) > 0:
-            divides = np.concatenate(divides, axis=0)
-        else:
+        if len(divides) == 0:
             divides = None
-        shape_original = np.concatenate(shape_original, axis=0)
 
         return \
             volumes, \
@@ -244,38 +234,86 @@ class InMemorySurfaceVolumeDataset:
             indices, \
             subtracts, \
             divides, \
-            shape_original
+            shape_original, \
+            patch_indices, \
+            shape_before_padding
 
     def get_item_single(self, idx) -> Dict[str, Any]:
-        # Always here
-        image = self.volumes[idx]
-        masks = [self.scroll_masks[idx]]
-        path = self.pathes[idx]
+        if self.patch_indices is not None:
+            idx_outer, idx_inner = 0, 0
+            for i in range(len(self.patch_indices)):
+                if idx < len(self.patch_indices[i]):
+                    idx_outer = i
+                    idx_inner = tuple(self.patch_indices[i][idx])
+                    break
+                else:
+                    idx -= len(self.patch_indices[i])
+            
+            # Always here
+            image = self.volumes[idx_outer][idx_inner]
+            masks = [self.scroll_masks[idx_outer][idx_inner]]
+            path = self.pathes[idx_outer][idx_inner]
 
-        # Only in train
-        if self.ir_images is not None:
-            masks.append(self.ir_images[idx])
-        if self.ink_masks is not None:
-            masks.append(self.ink_masks[idx])
+            # Only in train
+            if self.ir_images is not None:
+                masks.append(self.ir_images[idx_outer][idx_inner])
+            if self.ink_masks is not None:
+                masks.append(self.ink_masks[idx_outer][idx_inner])
 
-        # Only in val / test
-        indices = None
-        if self.indices is not None:
-            indices = self.indices[idx]
-        shape_patches = None
-        if self.shape_patches is not None:
-            shape_patches = self.shape_patches[idx]
+            # Only in val / test
+            indices = None
+            if self.indices is not None:
+                indices = self.indices[idx_outer][idx_inner]
+            shape_patches = None
+            if self.shape_patches is not None:
+                shape_patches = self.shape_patches[idx_outer][idx_inner]
 
-        # Optional
-        subtract = None
-        if self.subtracts is not None:
-            subtract = self.subtracts[idx]
-        divide = None
-        if self.divides is not None:
-            divide = self.divides[idx]
-        shape_original = None
-        if self.shape_original is not None:
-            shape_original = self.shape_original[idx]
+            # Optional
+            subtract = None
+            if self.subtracts is not None:
+                subtract = self.subtracts[idx_outer][idx_inner]
+            divide = None
+            if self.divides is not None:
+                divide = self.divides[idx_outer][idx_inner]
+            shape_original = None
+            if self.shape_original is not None:
+                shape_original = self.shape_original[idx_outer][idx_inner]
+            shape_before_padding = None
+            if self.shape_before_padding is not None:
+                shape_before_padding = self.shape_before_padding[idx_outer][idx_inner]
+        else:
+            # Always here
+            image = self.volumes[idx]
+            masks = [self.scroll_masks[idx]]
+            path = self.pathes[idx]
+
+            # Only in train
+            if self.ir_images is not None:
+                masks.append(self.ir_images[idx])
+            if self.ink_masks is not None:
+                masks.append(self.ink_masks[idx])
+
+            # Only in val / test
+            indices = None
+            if self.indices is not None:
+                indices = self.indices[idx]
+            shape_patches = None
+            if self.shape_patches is not None:
+                shape_patches = self.shape_patches[idx]
+
+            # Optional
+            subtract = None
+            if self.subtracts is not None:
+                subtract = self.subtracts[idx]
+            divide = None
+            if self.divides is not None:
+                divide = self.divides[idx]
+            shape_original = None
+            if self.shape_original is not None:
+                shape_original = self.shape_original[idx]
+            shape_before_padding = None
+            if self.shape_before_padding is not None:
+                shape_before_padding = self.shape_before_padding[idx]
 
         output = {
             'image': image,  # volume, (H, W, D)
@@ -286,6 +324,7 @@ class InMemorySurfaceVolumeDataset:
             'subtract': subtract,  # subtract, 1
             'divide': divide,  # divide, 1
             'shape_original': shape_original,  # shape_original, 3
+            'shape_before_padding': shape_before_padding,  # shape_before_padding, 3
         }
 
         if self.transform is not None:
