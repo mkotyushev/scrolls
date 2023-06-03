@@ -402,21 +402,21 @@ def build_z_shift_scale_maps(
             ink_masks=None,
             transform=None,
             patch_size=patch_size,
+            patch_step=patch_size,
             subtracts=[subtracts[i]],
             divides=[divides[i]],
         )
 
         z_shifts, z_scales = None, None
-        for item in tqdm(dataset):
+        for j in tqdm(range(len(dataset))):
+            item = dataset[j]
+
             # For each patch, calculate z_shift and z_scale
             # and store them in z_shifts and z_scales maps
             if z_shifts is None:
                 shape = item['shape_patches'].tolist()
                 z_shifts = np.full(shape, fill_value=np.nan, dtype=np.float32)
                 z_scales = np.full(shape, fill_value=np.nan, dtype=np.float32)
-
-            if not item['masks'][0].all():
-                continue
 
             indices = item['indices']
             volume = normalize_volume(
