@@ -10,7 +10,7 @@ from scipy.ndimage import geometric_transform
 from src.data.datamodules import read_data
 from src.data.datasets import build_z_shift_scale_maps
 
-# Usage: python src/scripts/z_shift_scale.py --input_dir /workspace/data/fragments/train/2 --output_dir /workspace/data/fragments_z_shift_scale/train/2 --patch_size 256 --z_start 20 --z_end 44
+# Usage: python src/scripts/z_shift_scale.py --input_dir /workspace/data/fragments/train/2 --output_dir /workspace/data/fragments_z_shift_scale/train/2 --z_shift_path z_shift.npy --z_scale_path z_scale.npy --z_start 20 --z_end 44
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -22,7 +22,8 @@ logging.basicConfig(
 parser = argparse.ArgumentParser()
 parser.add_argument('--input_dir', type=Path, required=True)
 parser.add_argument('--output_dir', type=Path, required=True)
-parser.add_argument('--patch_size', type=int, default=128)
+parser.add_argument('--z_shift_path', type=Path, required=True)
+parser.add_argument('--z_scale_path', type=Path, default=True)
 parser.add_argument('--z_start', type=int, default=None)
 parser.add_argument('--z_end', type=int, default=None)
 args = parser.parse_args()
@@ -42,20 +43,9 @@ for path in args.input_dir.glob('**/*'):
 volumes, scroll_masks, ir_images, ink_masks, subtracts, divides = \
     read_data([args.input_dir])
 
-# Build z shift and scale maps
-z_shifts, z_scales = build_z_shift_scale_maps(
-    pathes=[args.input_dir],
-    volumes=[volumes[0]],
-    scroll_masks=[scroll_masks[0]],
-    subtracts=[subtracts[0]],
-    divides=[divides[0]],
-    z_start=0,
-    crop_z_span=8,
-    mode='volume_mean_per_z', 
-    normalize='minmax', 
-    patch_size=(args.patch_size, args.patch_size),
-    sigma=0.5,
-)
+# Read z shift and scale maps
+z_shifts = [np.load(args.z_shift_path)]
+z_scales = [np.load(args.z_scale_path)]
 
 def z_shift_scale_map(x):
     shift, scale = z_shifts[0][x[0], x[1]], z_scales[0][x[0], x[1]]       
