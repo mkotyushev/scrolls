@@ -39,7 +39,7 @@ for path in args.input_dir.glob('**/*'):
         path_out.parent.mkdir(parents=True, exist_ok=True)
         path_out.write_bytes(path.read_bytes())
 
-# Read data
+# Read full data
 volumes, scroll_masks, ir_images, ink_masks, subtracts, divides = \
     read_data([args.input_dir])
 
@@ -47,9 +47,16 @@ volumes, scroll_masks, ir_images, ink_masks, subtracts, divides = \
 z_shifts = [np.load(args.z_shift_path)]
 z_scales = [np.load(args.z_scale_path)]
 
+# Get z range
+z_start, z_end = 0, volumes[0].shape[2]
+if args.z_start is not None:
+    z_start = z_start
+if args.z_end is not None:
+    z_end = z_end
+
 def z_shift_scale_map(x):
     shift, scale = z_shifts[0][x[0], x[1]], z_scales[0][x[0], x[1]]       
-    z = (x[2] - shift) / scale  # assuming non-zero scale
+    z = (z_start + x[2] - shift) / scale  # assuming non-zero scale
     return (
         x[0], 
         x[1], 
@@ -60,21 +67,15 @@ def z_shift_scale_map(x):
 volume_transformed = geometric_transform(
     volumes[0],
     z_shift_scale_map,
+    output_shape=(volumes[0].shape[0], volumes[0].shape[1], z_end - z_start),
     order=1,
 )
 
 # Convert to uint16
 volume_transformed = volume_transformed.astype(np.uint16)
 
-# Get z range
-z_start, z_end = 0, volume_transformed.shape[2]
-if args.z_start is not None:
-    z_start = z_start
-if args.z_end is not None:
-    z_end = z_end
-
 # Save transformed volume
-for z in range(z_start, z_end):
+for z in range(volume_transformed.shape[2]):
     path_out = \
         args.output_dir / \
         'surface_volume' / f'{z:02}.tif'
