@@ -45,7 +45,7 @@ logger.info(fragment_pathes)
 
 for fragment_path in fragment_pathes:
     volumes, scroll_masks, ir_images, ink_masks, subtracts, divides = \
-        read_data([fragment_path], center_crop_z=None)
+        read_data([fragment_path])
 
     # Build z shift and scale maps
     z_shifts, z_scales = build_z_shift_scale_maps(
