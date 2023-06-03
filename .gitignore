@@ -7,3 +7,5 @@ scrolls/
 *.png
 *.log
 weights/
+software/
+*.zip
