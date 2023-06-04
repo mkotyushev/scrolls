@@ -11,13 +11,17 @@
 import argparse
 import cv2
 from pathlib import Path
+import numpy as np
 from tqdm import tqdm
 
 
-def crop_image(in_path, in_fragment_root, out_fragments_root):
+def crop_image(in_path, in_fragment_root, out_fragments_root, center=None):
     """Crop image from in_path and save it to out_path / {i}"""
     img = cv2.imread(str(in_path), cv2.IMREAD_UNCHANGED)
-    h_center, w_center = img.shape[0] // 2, img.shape[1] // 2
+    if center is None:
+        h_center, w_center = img.shape[0] // 2, img.shape[1] // 2
+    else:
+        h_center, w_center = center
 
     img_crop = img[:h_center, :w_center]
     out_path = (
@@ -56,9 +60,17 @@ def crop_image(in_path, in_fragment_root, out_fragments_root):
     cv2.imwrite(str(out_path), img_crop)
 
 
+def get_scroll_mask_path(img_path):
+    if img_path.suffix == '.png':
+        return img_path.parent / f'mask.png'
+    elif img_path.suffix == '.tif':
+        return img_path.parent.parent / f'mask.png'
+
+
 parser = argparse.ArgumentParser(description='Crop fragment')
 parser.add_argument('in_dir', type=Path, help='input directory (root of single fragment)')
 parser.add_argument('out_dir', type=Path, help='output directory (root of fragments)')
+parser.add_argument('mode', type=str, choices=['geom', 'mass'], help='crop center is geom or mass center')
 args = parser.parse_args()
 
 for path in tqdm(args.in_dir.glob('**/*')):
@@ -68,7 +80,12 @@ for path in tqdm(args.in_dir.glob('**/*')):
     else:
         if path.suffix in ['.png', '.tif']:
             path_out = args.out_dir / path.relative_to(args.in_dir)
-            crop_image(path, args.in_dir, args.out_dir)
+            center = None
+            if args.mode == 'mass':
+                scroll_mask = cv2.imread(str(get_scroll_mask_path(path)), cv2.IMREAD_GRAYSCALE) > 0
+                mass_h, mass_w = np.where(scroll_mask)
+                center = np.floor(mass_h.mean()).astype(np.int32), np.floor(mass_w.mean()).astype(np.int32)
+            crop_image(path, args.in_dir, args.out_dir, center=center)
         else:
             path_out = args.out_dir / path.relative_to(args.in_dir)
             path_out.parent.mkdir(parents=True, exist_ok=True)
