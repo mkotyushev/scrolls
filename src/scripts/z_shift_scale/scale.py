@@ -59,7 +59,7 @@ mapping_lib_path = os.path.abspath(__file__).replace('scale.py', 'mapping.so')
 lib = ctypes.CDLL(mapping_lib_path)
 lib.mapping.restype = ctypes.c_int
 lib.mapping.argtypes = (
-    ctypes.POINTER(ctypes.c_longlong), 
+    ctypes.POINTER(ctypes.c_long), 
     ctypes.POINTER(ctypes.c_double), 
     ctypes.c_int, 
     ctypes.c_int, 
@@ -67,9 +67,10 @@ lib.mapping.argtypes = (
 )
 
 # Read data (partially):
-# input_coordinates[2] = (z_start + output_coordinates[2] - shift) / scale;
-z_start_input = np.floor(((z_start - z_shifts[0]) / z_scales[0]).min()).astype(np.int32)
-z_end_input = (np.ceil(((z_end - z_shifts[0]) / z_scales[0]).max()) + 1).astype(np.int32)
+# input_coordinates[2] = (z_start + output_coordinates[2] - shift) / scale - z_start_input;
+z_start_input, z_end_input = 0, N_SLICES
+z_start_input = np.floor(((z_start - z_shifts[0]) / z_scales[0]).min() - 1).astype(np.int32)
+z_end_input = np.ceil(((z_end - z_shifts[0]) / z_scales[0]).max() + 1).astype(np.int32)
 z_start_input = max(0, z_start_input)
 z_end_input = min(N_SLICES, z_end_input)
 
@@ -79,6 +80,12 @@ volumes, scroll_masks, ir_images, ink_masks, subtracts, divides = \
 
 # z_start, n_rows, n_cols, flattened shift array, flattened scale array
 # as single array double
+logger.info(
+    f'Input shape: {volumes[0].shape}, '
+    f'output shape: {(volumes[0].shape[0], volumes[0].shape[1], z_end - z_start)}, '
+    f'z_shifts shape: {z_shifts[0].shape}, '
+    f'z_scales shape: {z_scales[0].shape}'
+)
 user_data = np.concatenate(
     [
         np.array([z_start, z_start_input, volumes[0].shape[0], volumes[0].shape[1]], dtype=np.double),
@@ -87,11 +94,12 @@ user_data = np.concatenate(
     ],
     dtype=np.double,
 )
-user_data = np.ascontiguousarray(user_data)
-user_data = ctypes.c_void_p(user_data.__array_interface__['data'][0])
+user_data = (ctypes.c_double*user_data.shape[0]).from_buffer(user_data)
+user_data = ctypes.cast(user_data, ctypes.c_void_p)
 func = LowLevelCallable(lib.mapping, user_data)
 
 # Apply z shift and scale maps
+logger.info(f'Transforming slices {z_start_input} - {z_end_input} to {z_start} - {z_end}')
 volume_transformed = geometric_transform(
     volumes[0],
     func,
@@ -106,8 +114,8 @@ volume_transformed = volume_transformed.astype(np.uint16)
 for z in range(volume_transformed.shape[2]):
     path_out = \
         args.output_dir / \
-        'surface_volume' / f'{z:02}.tif'
-    logger.info(f'Saving layer {z} to {path_out}')
+        'surface_volume' / f'{z_start + z:02}.tif'
+    logger.info(f'Saving layer {z_start + z} to {path_out}')
     
     path_out.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(
