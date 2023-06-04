@@ -385,7 +385,7 @@ def build_z_shift_scale_maps(
     mode='volume_mean_per_z', 
     normalize='minmax', 
     patch_size=(128, 128),
-    sigma=0.5,
+    sigma=None,
 ):
     # Center crop
     z_target = Z_TARGET[CENTER_Z - crop_z_span:CENTER_Z + crop_z_span + 1]
@@ -402,21 +402,24 @@ def build_z_shift_scale_maps(
             ink_masks=None,
             transform=None,
             patch_size=patch_size,
-            patch_step=patch_size,
+            patch_step=tuple(s // 2 for s in patch_size),
             subtracts=[subtracts[i]],
             divides=[divides[i]],
         )
 
-        z_shifts, z_scales = None, None
+        z_shifts, z_scales, shape_patches, shape_original, shape_before_padding = \
+            None, None, None, None, None
         for j in tqdm(range(len(dataset))):
             item = dataset[j]
 
             # For each patch, calculate z_shift and z_scale
             # and store them in z_shifts and z_scales maps
             if z_shifts is None:
-                shape = item['shape_patches'].tolist()
-                z_shifts = np.full(shape, fill_value=np.nan, dtype=np.float32)
-                z_scales = np.full(shape, fill_value=np.nan, dtype=np.float32)
+                shape_patches = item['shape_patches'].tolist()
+                shape_original = item['shape_original'].tolist()
+                shape_before_padding = item['shape_before_padding'].tolist()
+                z_shifts = np.full(shape_patches, fill_value=np.nan, dtype=np.float32)
+                z_scales = np.full(shape_patches, fill_value=np.nan, dtype=np.float32)
 
             indices = item['indices']
             volume = normalize_volume(
@@ -448,37 +451,35 @@ def build_z_shift_scale_maps(
         z_scales = interpolate_masked_pixels(z_scales, mask, method='linear')
 
         # Apply filtering
-        z_shifts = gaussian_filter(z_shifts, sigma=sigma)
-        z_scales = gaussian_filter(z_scales, sigma=sigma)
+        if sigma is not None:
+            z_shifts = gaussian_filter(z_shifts, sigma=sigma)
+            z_scales = gaussian_filter(z_scales, sigma=sigma)
 
         # Upscale z_shifts and z_scales maps to the 
         # original (padded) volume size
 
         # Note: shape could be not equal to the original volume size
         # because of the padding used in patchification
-        shape = \
-            z_shifts.shape[1] * patch_size[1], \
-            z_shifts.shape[0] * patch_size[0]
         z_shifts = cv2.resize(
             z_shifts,
-            shape,
+            shape_original[:2][::-1],
             interpolation=cv2.INTER_LINEAR,
         )
         z_scales = cv2.resize(
             z_scales,
-            shape,
+            shape_original[:2][::-1],
             interpolation=cv2.INTER_LINEAR,
         )
 
         # Crop z_shifts and z_scales maps to the
         # original volume size (padding is always 'after')
         z_shifts = z_shifts[
-            :volumes[i].shape[0],
-            :volumes[i].shape[1],
+            :shape_before_padding[0],
+            :shape_before_padding[1],
         ]
         z_scales = z_scales[
-            :volumes[i].shape[0],
-            :volumes[i].shape[1],
+            :shape_before_padding[0],
+            :shape_before_padding[1],
         ]
 
         z_shifts_all.append(z_shifts)

@@ -1,5 +1,6 @@
 import argparse
 import logging
+import sys
 import cv2
 import imagesize
 import numpy as np
@@ -29,8 +30,13 @@ args = parser.parse_args()
 original_width, original_height = imagesize.get(args.input_dir / 'mask.png')
 
 # Read downscaled data
+z_start, z_end = 17, 50
 volumes, scroll_masks, ir_images, ink_masks, subtracts, divides = \
-    read_data([args.downscaled_input_dir])
+    read_data(
+        [args.downscaled_input_dir], 
+        z_start=z_start,
+        z_end=z_end,
+    )
 
 # Build z shift and scale maps
 z_shifts, z_scales = build_z_shift_scale_maps(
@@ -39,12 +45,12 @@ z_shifts, z_scales = build_z_shift_scale_maps(
     scroll_masks=[scroll_masks[0]],
     subtracts=[subtracts[0]],
     divides=[divides[0]],
-    z_start=0,
+    z_start=z_start,
     crop_z_span=8,
     mode='volume_mean_per_z', 
     normalize='minmax', 
     patch_size=(args.patch_size, args.patch_size),
-    sigma=0.5,
+    sigma=None,
 )
 
 # Upscale to original size
@@ -66,3 +72,7 @@ np.save(
     args.output_dir / 'z_scale.npy',
     z_scales[0],
 )
+
+# Save run command
+with open(args.output_dir / 'z_shift_scale_args.txt', 'w') as f:
+    f.write(' '.join(['python'] + sys.argv))
