@@ -19,13 +19,13 @@ mapping(npy_intp *output_coordinates, double *input_coordinates,
 
     long offset_shift = ((long)(floor(
         0 +
-        output_coordinates[1] * n_cols + output_coordinates[0]
+        output_coordinates[0] * n_cols + output_coordinates[1]
     ))) * sizeof(double);
     double shift = *(double *)(user_data + offset_shift);
 
     long offset_scale = ((long)(floor(
         n_rows * n_cols +
-        output_coordinates[1] * n_cols + output_coordinates[0]
+        output_coordinates[0] * n_cols + output_coordinates[1]
     ))) * sizeof(double);
     double scale = *(double *)(user_data + offset_scale);
 
