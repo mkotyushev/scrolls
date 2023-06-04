@@ -50,9 +50,9 @@ logger.info(f'z_scales: ({z_scales[0].min()}, {z_scales[0].max()})')
 # Get z range
 z_start, z_end = 0, N_SLICES
 if args.z_start is not None:
-    z_start = z_start
+    z_start = args.z_start
 if args.z_end is not None:
-    z_end = z_end
+    z_end = args.z_end
 
 # Build transform
 mapping_lib_path = os.path.abspath(__file__).replace('scale.py', 'mapping.so')
