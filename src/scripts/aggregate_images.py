@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 import cv2
 import numpy as np
 from pathlib import Path
@@ -9,9 +10,10 @@ from src.utils.utils import rle
 
 
 logger = logging.getLogger(__name__)
+LOGLEVEL = os.environ.get('LOGLEVEL', 'INFO').upper()
 logging.basicConfig(
     format='%(asctime)s %(levelname)-8s %(message)s',
-    level=logging.INFO,
+    level=LOGLEVEL,
     datefmt='%Y-%m-%d %H:%M:%S',
 )
 

@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 import cv2
 from pathlib import Path
 from tqdm import tqdm
@@ -7,9 +8,10 @@ from tqdm import tqdm
 # Usage: python src/scripts/merge_cropped_subfragments.py /workspace/data/fragments_z_shift_scale_cropped/train/2a /workspace/data/fragments_z_shift_scale_cropped/train/2b /workspace/data/fragments_z_shift_scale_cropped/train/2c /workspace/data/fragments_z_shift_scale_cropped/train/2d /workspace/data/fragments_z_shift_scale_cropped_merged/train/2
 
 logger = logging.getLogger(__name__)
+LOGLEVEL = os.environ.get('LOGLEVEL', 'INFO').upper()
 logging.basicConfig(
     format='%(asctime)s %(levelname)-8s %(message)s',
-    level=logging.INFO,
+    level=LOGLEVEL,
     datefmt='%Y-%m-%d %H:%M:%S',
 )
 

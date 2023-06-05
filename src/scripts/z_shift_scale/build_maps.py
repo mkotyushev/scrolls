@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 import sys
 import cv2
 import imagesize
@@ -12,9 +13,10 @@ from src.data.datasets import build_z_shift_scale_maps
 # Usage: python src/scripts/z_shift_scale/build_maps.py --input_dir /workspace/data/fragments/train/2 --downscaled_input_dir /workspace/data/fragments_downscaled_2/train/2 --output_dir . --patch_size 128 --downscale_factor 2
 
 logger = logging.getLogger(__name__)
+LOGLEVEL = os.environ.get('LOGLEVEL', 'INFO').upper()
 logging.basicConfig(
     format='%(asctime)s %(levelname)-8s %(message)s',
-    level=logging.INFO,
+    level=LOGLEVEL,
     datefmt='%Y-%m-%d %H:%M:%S',
 )
 
