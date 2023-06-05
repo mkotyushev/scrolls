@@ -92,8 +92,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--input_dir', type=Path, required=True)
     parser.add_argument('--output_dir', type=Path, required=True)
-    parser.add_argument('--z_shift_path', type=Path, required=True)
-    parser.add_argument('--z_scale_path', type=Path, default=True)
+    parser.add_argument('--map_path', type=Path, required=True)
     parser.add_argument('--z_start', type=int, default=None)
     parser.add_argument('--z_end', type=int, default=None)
     args = parser.parse_args()
@@ -109,9 +108,11 @@ def main():
             path_out.parent.mkdir(parents=True, exist_ok=True)
             path_out.write_bytes(path.read_bytes())
 
-    # Read z shift and scale maps
-    z_shifts = [np.load(args.z_shift_path)]
-    z_scales = [np.load(args.z_scale_path)]
+    # Read maps
+    z_shifts = [np.load(args.map_path / 'z_shift.npy')]
+    z_scales = [np.load(args.map_path / 'z_scale.npy')]
+    y_shifts = [np.load(args.map_path / 'y_shift.npy')]
+    y_scales = [np.load(args.map_path / 'y_scale.npy')]
 
     logger.info(f'z_shifts: ({z_shifts[0].min()}, {z_shifts[0].max()})')
     logger.info(f'z_scales: ({z_scales[0].min()}, {z_scales[0].max()})')
@@ -136,7 +137,7 @@ def main():
         f'z_scales shape: {z_scales[0].shape}'
     )
 
-    # Build transform
+    # Build z transform
     func = build_z_shift_scale_transform(
         volumes[0].shape, 
         z_start_input, 
@@ -153,6 +154,13 @@ def main():
         z_start,
         z_end,
     )
+
+    # Apply y shift and scale maps
+    logger.info(f'Applying y shift and scale maps')
+    mask = y_scales[0] == 0.0
+    y_scales[0] = np.where(mask, 1.0, y_scales[0])
+    y_shifts[0] = np.where(mask, 0.0, y_shifts[0])
+    volume_transformed = (volume_transformed - y_shifts[0]) / y_scales[0]
 
     # Save transformed volume
     for z in range(volume_transformed.shape[2]):
