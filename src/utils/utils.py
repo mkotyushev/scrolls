@@ -500,6 +500,12 @@ def convert_to_grayscale(model, backbone_name):
     return model
 
 
+def calculate_minmax_mean_per_z(dataset):
+    _, mean = get_z_dataset_mean_per_z(dataset, z_start=0)
+    min_, max_ = mean.min(), mean.max()
+    return min_, max_
+
+
 def calculate_statistics(volume, scroll_mask, mode, normalize):
     assert mode in ['volume', 'volume_mean_per_z']
     assert normalize in ['minmax', 'meanstd', 'quantile']
@@ -550,8 +556,25 @@ def normalize_volume(volume, scroll_mask, mode='volume_mean_per_z', normalize='q
     return volume
 
 
-def get_z_volume_mean_per_z(volume, scroll_mask):
-    z = np.arange(volume.shape[2])
+def get_z_dataset_mean_per_z(dataset, z_start):
+    depth = dataset[0]['image'].shape[2]
+    z = np.arange(z_start, z_start + depth)
+
+    sum_, count = np.zeros(depth, dtype=np.uint64), 0
+    for item in tqdm(dataset, desc='get_z_dataset_mean_per_z'):
+        volume, scroll_mask = item['image'], item['masks'][0]
+        scroll_mask = (scroll_mask > 0)[:, :, None]
+        sum_ += np.sum(volume, where=scroll_mask, axis=(0, 1))
+        count += np.sum(scroll_mask, axis=(0, 1))
+
+    mean = sum_ / count
+    logger.info(f'get_z_dataset_mean_per_z: sum: {sum_}, count: {count}, mean: {mean}')
+    
+    return z, mean
+
+
+def get_z_volume_mean_per_z(volume, scroll_mask, z_start):
+    z = np.arange(z_start, z_start + volume.shape[2])
     H, W, D = volume.shape
     scroll_mask_flattened_xy = (scroll_mask > 0).flatten()
     volume_flattened_xy = volume.reshape(H * W, D)
@@ -562,24 +585,113 @@ def get_z_volume_mean_per_z(volume, scroll_mask):
     return z, volume_mean_per_z
 
 
-def fit_x_shift_scale(x, y, x_target, y_target):
-    """Fit x_shift and x_scale so that y_target
-    is close to y(x_target) in the least square sense.
+def fit_x_shift_scale(x, y, x_target, y_target, model='no_y_scale'):
+    """Fit x_shift and scale so that f(x_target),
+    where f(x) is the interpolation of y(x * scale + x_shift),
+    is close to y_target in the least square sense.
 
-    Use scipy.interpolate.interp1d to get y(x_target) from y, x * x_scale + x_shift 
-    and scipy.optimize.least_squares to find x_shift and x_scale.
+    Use scipy.interpolate.interp1d to get y(x_target) from y, x * scale + x_shift 
+    and scipy.optimize.least_squares to find x_shift and scale.
+    
+    Model 'no_y':
+        - shift corresponds to different leveling of the 
+        papirus w. r. t. the default, so it needs to be compensated
+        by shifting the x
+        - scale corresponds to different width of the papirus
+        w. r. t. the default.
+    Model 'independent_y_scale': 
+        Same as model 'no_y' but additionally scale the y as well via
+        independent scale parameter: optical density of the papira 
+        could be different.
+    Model 'independent_y_shift_scale': 
+        Same as model 'independent_y_scale' but additionally scale and 
+        shift the y as well via independent scale parameter: optical 
+        density of the papira could be different.
+    Model 'beer_lambert_law':
+        Same as model 1 but additionally scale the y as well via
+        exponential of minus independent total absorbance (absorbance * traveled length) 
+        parameter multiplied by the change of x scale.
     """
-    def fun(p):
-        x_shift, x_scale = p
-        x_scaled_shifted = x * x_scale + x_shift
-        f = interpolate.interp1d(x_scaled_shifted, y, bounds_error=False, fill_value='extrapolate')
-        return f(x_target) - y_target
-    x_shift, x_scale = optimize.least_squares(
-        fun=fun, 
-        x0=[0, 1],
-        bounds=([-30, 0.1], [30, 10]),
-    ).x
-    return x_shift, x_scale
+    assert model in ['no_y', 'independent_y_scale', 'independent_y_shift_scale', 'beer_lambert_law']
+    
+    # Not sure if least_squares is scale invariant, so scale variables closer to 0
+    X_SHIFT_MULTIPLIER = 30
+    X_SCALE_MULTIPLIER = 1
+    Y_SHIFT_MULTIPLIER = 2e4
+    Y_SCALE_MULTIPLIER = 1
+    ABSORBANCE_MULTIPLIER = 2
+
+    if model == 'no_y':
+        def fun(p):
+            x_shift, x_scale = p
+            x_shift *= X_SHIFT_MULTIPLIER
+            x_scale *= X_SCALE_MULTIPLIER
+            x_scaled_shifted = x * x_scale + x_shift
+            f = interpolate.interp1d(x_scaled_shifted, y, bounds_error=False, fill_value='extrapolate')
+            return f(x_target) - y_target
+        x_shift, x_scale = optimize.least_squares(
+            fun=fun, 
+            x0=[0, 1],
+            bounds=([-1, 0.1], [1, 10]),
+        ).x
+        y_scale = 1
+        y_shift = 0
+    elif model == 'independent_y_scale':
+        def fun(p):
+            x_shift, x_scale, y_scale = p
+            x_shift *= X_SHIFT_MULTIPLIER
+            x_scale *= X_SCALE_MULTIPLIER
+            y_scale *= Y_SCALE_MULTIPLIER
+            x_scaled_shifted = x * x_scale + x_shift
+            f = interpolate.interp1d(x_scaled_shifted, y, bounds_error=False, fill_value='extrapolate')
+            mult = y_scale
+            return f(x_target) * mult - y_target
+        x_shift, x_scale, y_scale = optimize.least_squares(
+            fun=fun, 
+            x0=[0, 1, 1],
+            bounds=([-1, 0.1, 0.1], [1, 10, 3]),
+        ).x
+        y_shift = 0
+    elif model == 'independent_y_shift_scale':
+        def fun(p):
+            x_shift, x_scale, y_shift, y_scale = p
+            x_shift *= X_SHIFT_MULTIPLIER
+            x_scale *= X_SCALE_MULTIPLIER
+            y_shift *= Y_SHIFT_MULTIPLIER
+            y_scale *= Y_SCALE_MULTIPLIER
+            x_scaled_shifted = x * x_scale + x_shift
+            f = interpolate.interp1d(x_scaled_shifted, y, bounds_error=False, fill_value='extrapolate')
+            return f(x_target) * y_scale + y_shift - y_target
+        x_shift, x_scale, y_scale, y_shift = optimize.least_squares(
+            fun=fun, 
+            x0=[0, 1, 1, 0],
+            bounds=([-1, 0.1, 0.1, -1], [1, 10, 3, 1]),
+        ).x
+    elif model == 'beer_lambert_law':
+        def fun(p):
+            x_shift, x_scale, total_absorbance = p
+            x_shift *= X_SHIFT_MULTIPLIER
+            x_scale *= X_SCALE_MULTIPLIER
+            total_absorbance *= ABSORBANCE_MULTIPLIER
+            x_scaled_shifted = x * x_scale + x_shift
+            f = interpolate.interp1d(x_scaled_shifted, y, bounds_error=False, fill_value='extrapolate')
+            mult = np.exp(-total_absorbance * (x_scale - 1))
+            return f(x_target) * mult - y_target
+        x_shift, x_scale, total_absorbance = optimize.least_squares(
+            fun=fun, 
+            x0=[0, 1, 1e-3],
+            bounds=([-1, 0.1, 0.0], [1, 10, 1]),
+        ).x
+        y_scale = np.exp(-total_absorbance * x_scale)
+        y_shift = 0
+    
+    x_shift *= X_SHIFT_MULTIPLIER
+    x_scale *= X_SCALE_MULTIPLIER
+    y_shift *= Y_SHIFT_MULTIPLIER
+    y_scale *= Y_SCALE_MULTIPLIER
+    
+    return x_shift, x_scale, y_shift, y_scale
+
 
 
 # https://stackoverflow.com/questions/37662180/interpolate-missing-values-2d-python

@@ -10,16 +10,16 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from patchify import patchify
 from timm.layers import to_2tuple
 
-from src.data.constants import N_SLICES, Z_TARGET, VOLUME_MEAN_PER_Z_TARGET, CENTER_Z
+from src.data.constants import N_SLICES
 from src.scripts.z_shift_scale.scale import (
     apply_z_shift_scale, 
     build_z_shift_scale_transform, 
     calculate_input_z_range
 )
 from src.utils.utils import (
+    calculate_minmax_mean_per_z,
     calculate_pad_width,
     copy_crop_pad_2d,
-    normalize_volume, 
     get_z_volume_mean_per_z, 
     fit_x_shift_scale, 
     build_nan_or_outliers_mask, 
@@ -420,8 +420,9 @@ class SurfaceVolumeDatasetTest:
                 )
         
             # Z shift and scale maps
-            self.z_shifts.append(np.load(str(z_shift_scale_root / 'z_shift.npy')))
-            self.z_scales.append(np.load(str(z_shift_scale_root / 'z_scale.npy')))
+            if self.do_z_shift_scale:
+                self.z_shifts.append(np.load(str(z_shift_scale_root / 'z_shift.npy')))
+                self.z_scales.append(np.load(str(z_shift_scale_root / 'z_scale.npy')))
 
         # Build index
         self.shape_patches = []
@@ -467,11 +468,11 @@ class SurfaceVolumeDatasetTest:
         # Read part of volume
         # Note: zero padding is applied to z_scale which could lead to zero division
         # but it is handled later in transform
-        z_shift = copy_crop_pad_2d(self.z_shifts[outer_index], self.patch_size, patch_info['bbox'])
-        z_scale = copy_crop_pad_2d(self.z_scales[outer_index], self.patch_size, patch_info['bbox'])
-        
-        z_start_input, z_end_input = 0, N_SLICES
+        z_start_input, z_end_input = self.z_start, self.z_end
+        z_shift, z_scale = None, None
         if self.do_z_shift_scale:
+            z_shift = copy_crop_pad_2d(self.z_shifts[outer_index], self.patch_size, patch_info['bbox'])
+            z_scale = copy_crop_pad_2d(self.z_scales[outer_index], self.patch_size, patch_info['bbox'])
             z_start_input, z_end_input = calculate_input_z_range(
                 self.z_start, 
                 self.z_end, 
@@ -548,115 +549,148 @@ class SurfaceVolumeDatasetTest:
         return output
 
 
-def build_z_shift_scale_maps(
-    pathes,
-    volumes, 
-    scroll_masks, 
-    subtracts,
-    divides,
+def build_maps(
+    path,
+    z_target,
+    volume_mean_per_z_target,
     z_start=0,
-    crop_z_span=8,
-    mode='volume_mean_per_z', 
-    normalize='minmax', 
-    patch_size=(128, 128),
+    z_end=N_SLICES,
+    patch_size=(256, 256),
+    overlap_divider=2,
+    model='no_y',
+    normalize=True,
     sigma=None,
 ):
-    # Center crop
-    z_target = Z_TARGET[CENTER_Z - crop_z_span:CENTER_Z + crop_z_span + 1]
-    volume_mean_per_z_target = VOLUME_MEAN_PER_Z_TARGET[CENTER_Z - crop_z_span:CENTER_Z + crop_z_span + 1]
-
-    z_shifts_all, z_scales_all = [], []
-    for i, path in enumerate(pathes):
-        # Build dataset with patchification
-        dataset = InMemorySurfaceVolumeDataset(
-            volumes=[volumes[i]],
-            scroll_masks=[scroll_masks[i]],
+    subtract, divide = 0, 1
+    if normalize:
+        # Dataset with all slices, patchification and no overlap
+        dataset = SurfaceVolumeDatasetTest(
             pathes=[path],
-            ir_images=None,
-            ink_masks=None,
+            z_shift_scale_pathes=None,
+            do_z_shift_scale=False,
+            z_start=0,
+            z_end=N_SLICES,
             transform=None,
             patch_size=patch_size,
-            patch_step=tuple(s // 2 for s in patch_size),
-            subtracts=[subtracts[i]],
-            divides=[divides[i]],
+            patch_step=patch_size,
         )
-
-        z_shifts, z_scales, shape_patches, shape_original, shape_before_padding = \
-            None, None, None, None, None
-        for j in tqdm(range(len(dataset))):
-            item = dataset[j]
-
-            # For each patch, calculate z_shift and z_scale
-            # and store them in z_shifts and z_scales maps
-            if z_shifts is None:
-                shape_patches = item['shape_patches'].tolist()
-                shape_original = item['shape_original'].tolist()
-                shape_before_padding = item['shape_before_padding'].tolist()
-                z_shifts = np.full(shape_patches, fill_value=np.nan, dtype=np.float32)
-                z_scales = np.full(shape_patches, fill_value=np.nan, dtype=np.float32)
-
-            indices = item['indices']
-            volume = normalize_volume(
-                item['image'], 
-                item['masks'][0], 
-                mode=mode, 
-                normalize=normalize,
-                precomputed=(item['subtract'], item['divide']),
-            )
-            z, volume_mean_per_z = get_z_volume_mean_per_z(
-                volume, item['masks'][0]
-            )
-            z = z + z_start
-        
-            z_shift, z_scale = fit_x_shift_scale(z, volume_mean_per_z, z_target, volume_mean_per_z_target)
-
-            z_shifts[indices[1], indices[0]] = z_shift
-            z_scales[indices[1], indices[0]] = z_scale
-
-        # Clear outliers & nans
-        z_shifts_nan, z_shifts_outliers = build_nan_or_outliers_mask(z_shifts)
-        z_scales_nan, z_scales_outliers = build_nan_or_outliers_mask(z_scales)
-        
-        z_shifts[z_shifts_nan] = z_shifts[~z_shifts_nan].mean()
-        z_scales[z_scales_nan] = z_scales[~z_scales_nan].mean()
-
-        mask = z_shifts_outliers | z_scales_outliers
-        z_shifts = interpolate_masked_pixels(z_shifts, mask, method='linear')
-        z_scales = interpolate_masked_pixels(z_scales, mask, method='linear')
-
-        # Apply filtering
-        if sigma is not None:
-            z_shifts = gaussian_filter(z_shifts, sigma=sigma)
-            z_scales = gaussian_filter(z_scales, sigma=sigma)
-
-        # Upscale z_shifts and z_scales maps to the 
-        # original (padded) volume size
-
-        # Note: shape could be not equal to the original volume size
-        # because of the padding used in patchification
-        z_shifts = cv2.resize(
-            z_shifts,
-            shape_original[:2][::-1],
-            interpolation=cv2.INTER_LINEAR,
-        )
-        z_scales = cv2.resize(
-            z_scales,
-            shape_original[:2][::-1],
-            interpolation=cv2.INTER_LINEAR,
-        )
-
-        # Crop z_shifts and z_scales maps to the
-        # original volume size (padding is always 'after')
-        z_shifts = z_shifts[
-            :shape_before_padding[0],
-            :shape_before_padding[1],
-        ]
-        z_scales = z_scales[
-            :shape_before_padding[0],
-            :shape_before_padding[1],
-        ]
-
-        z_shifts_all.append(z_shifts)
-        z_scales_all.append(z_scales)
+        min_, max_ = calculate_minmax_mean_per_z(dataset)
+        subtract = min_
+        divide = max_ - min_
+        logger.info(f'subtract: {subtract}, divide: {divide}')
     
-    return z_shifts_all, z_scales_all
+    # Dataset with partial slices, patchification and overlap
+    dataset = SurfaceVolumeDatasetTest(
+        pathes=[path],
+        z_shift_scale_pathes=None,
+        do_z_shift_scale=False,
+        z_start=z_start,
+        z_end=z_end,
+        transform=None,
+        patch_size=patch_size,
+        patch_step=tuple(s // overlap_divider for s in patch_size),
+    )
+
+    z_shifts, z_scales, y_shifts, y_scales, shape_patches, shape_original, shape_before_padding = \
+        None, None, None, None, None, None, None
+    for j in tqdm(range(len(dataset))):
+        item = dataset[j]
+
+        # For each patch, calculate shifts and scales
+        # and store them in maps
+        if z_shifts is None:
+            shape_patches = item['shape_patches'].tolist()
+            shape_original = item['shape_original'].tolist()
+            shape_before_padding = item['shape_before_padding'].tolist()
+            z_shifts = np.full(shape_patches, fill_value=np.nan, dtype=np.float32)
+            z_scales = np.full(shape_patches, fill_value=np.nan, dtype=np.float32)
+            y_shifts = np.full(shape_patches, fill_value=np.nan, dtype=np.float32)
+            y_scales = np.full(shape_patches, fill_value=np.nan, dtype=np.float32)
+
+        z, volume_mean_per_z = get_z_volume_mean_per_z(
+            item['image'], item['masks'][0], z_start
+        )
+        volume_mean_per_z = (volume_mean_per_z - subtract) / divide
+        z_shift, z_scale, y_shift, y_scale = fit_x_shift_scale(
+            z, 
+            volume_mean_per_z, 
+            z_target, 
+            volume_mean_per_z_target,
+            model=model,
+        )
+
+        indices = item['indices']
+        z_shifts[indices[1], indices[0]] = z_shift
+        z_scales[indices[1], indices[0]] = z_scale
+        y_shifts[indices[1], indices[0]] = y_shift
+        y_scales[indices[1], indices[0]] = y_scale
+
+    # Clear outliers & nans
+    z_shifts_nan, z_shifts_outliers = build_nan_or_outliers_mask(z_shifts)
+    z_scales_nan, z_scales_outliers = build_nan_or_outliers_mask(z_scales)
+    y_shifts_nan, y_shifts_outliers = build_nan_or_outliers_mask(y_shifts)
+    y_scales_nan, y_scales_outliers = build_nan_or_outliers_mask(y_scales)
+    
+    z_shifts[z_shifts_nan] = z_shifts[~z_shifts_nan].mean()
+    z_scales[z_scales_nan] = z_scales[~z_scales_nan].mean()
+    y_shifts[y_shifts_nan] = y_shifts[~y_shifts_nan].mean()
+    y_scales[y_scales_nan] = y_scales[~y_scales_nan].mean()
+
+    mask = z_shifts_outliers | z_scales_outliers | y_scales_outliers | y_shifts_outliers
+    z_shifts = interpolate_masked_pixels(z_shifts, mask, method='linear')
+    z_scales = interpolate_masked_pixels(z_scales, mask, method='linear')
+    y_shifts = interpolate_masked_pixels(y_shifts, mask, method='linear')
+    y_scales = interpolate_masked_pixels(y_scales, mask, method='linear')
+
+    # Apply filtering
+    if sigma is not None:
+        z_shifts = gaussian_filter(z_shifts, sigma=sigma)
+        z_scales = gaussian_filter(z_scales, sigma=sigma)
+        y_shifts = gaussian_filter(y_shifts, sigma=sigma)
+        y_scales = gaussian_filter(y_scales, sigma=sigma)
+
+    # Upscale maps to the original (padded) volume size
+
+    # Note: shape could be not equal to the original volume size
+    # because of the padding used in patchification
+    z_shifts = cv2.resize(
+        z_shifts,
+        shape_original[:2][::-1],
+        interpolation=cv2.INTER_LINEAR,
+    )
+    z_scales = cv2.resize(
+        z_scales,
+        shape_original[:2][::-1],
+        interpolation=cv2.INTER_LINEAR,
+    )
+    y_shifts = cv2.resize(
+        y_shifts,
+        shape_original[:2][::-1],
+        interpolation=cv2.INTER_LINEAR,
+    )
+    y_scales = cv2.resize(
+        y_scales,
+        shape_original[:2][::-1],
+        interpolation=cv2.INTER_LINEAR,
+    )
+
+    # Crop maps to the original volume size 
+    # (padding is always 'after')
+    z_shifts = z_shifts[
+        :shape_before_padding[0],
+        :shape_before_padding[1],
+    ]
+    z_scales = z_scales[
+        :shape_before_padding[0],
+        :shape_before_padding[1],
+    ]
+    y_shifts = y_shifts[
+        :shape_before_padding[0],
+        :shape_before_padding[1],
+    ]
+    y_scales = y_scales[
+        :shape_before_padding[0],
+        :shape_before_padding[1],
+    ]
+    
+    return z_shifts, z_scales, y_shifts, y_scales
