@@ -17,7 +17,13 @@ from tqdm import tqdm
 
 def crop_image(in_path, in_fragment_root, out_fragments_root, center=None):
     """Crop image from in_path and save it to out_path / {i}"""
-    img = cv2.imread(str(in_path), cv2.IMREAD_UNCHANGED)
+    if in_path.suffix in ['.png', '.tif']:
+        img = cv2.imread(str(in_path), cv2.IMREAD_UNCHANGED)
+    elif in_path.suffix == '.npy':
+        img = np.load(in_path)
+    else:
+        raise ValueError(f'Unknown file type: {in_path.suffix}')
+    
     if center is None:
         h_center, w_center = img.shape[0] // 2, img.shape[1] // 2
     else:
@@ -30,7 +36,11 @@ def crop_image(in_path, in_fragment_root, out_fragments_root, center=None):
         Path(in_path).relative_to(in_fragment_root)
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(str(out_path), img_crop)
+    
+    if in_path.suffix in ['.png', '.tif']:
+        cv2.imwrite(str(out_path), img_crop)
+    elif in_path.suffix == '.npy':
+        np.save(out_path, img_crop)
 
     img_crop = img[:h_center, w_center:]
     out_path = (
@@ -39,7 +49,11 @@ def crop_image(in_path, in_fragment_root, out_fragments_root, center=None):
         Path(in_path).relative_to(in_fragment_root)
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(str(out_path), img_crop)
+
+    if in_path.suffix in ['.png', '.tif']:
+        cv2.imwrite(str(out_path), img_crop)
+    elif in_path.suffix == '.npy':
+        np.save(out_path, img_crop)
 
     img_crop = img[h_center:, :w_center]
     out_path = (
@@ -48,7 +62,11 @@ def crop_image(in_path, in_fragment_root, out_fragments_root, center=None):
         Path(in_path).relative_to(in_fragment_root)
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(str(out_path), img_crop)
+
+    if in_path.suffix in ['.png', '.tif']:
+        cv2.imwrite(str(out_path), img_crop)
+    elif in_path.suffix == '.npy':
+        np.save(out_path, img_crop)
 
     img_crop = img[h_center:, w_center:]
     out_path = (
@@ -57,14 +75,18 @@ def crop_image(in_path, in_fragment_root, out_fragments_root, center=None):
         Path(in_path).relative_to(in_fragment_root)
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(str(out_path), img_crop)
+
+    if in_path.suffix in ['.png', '.tif']:
+        cv2.imwrite(str(out_path), img_crop)
+    elif in_path.suffix == '.npy':
+        np.save(out_path, img_crop)
 
 
 def get_scroll_mask_path(img_path):
-    if img_path.suffix == '.png':
-        return img_path.parent / f'mask.png'
+    if img_path.suffix in ['.png', '.npy']:
+        return img_path.parent / 'mask.png'
     elif img_path.suffix == '.tif':
-        return img_path.parent.parent / f'mask.png'
+        return img_path.parent.parent / 'mask.png'
 
 
 parser = argparse.ArgumentParser(description='Crop fragment')
@@ -78,7 +100,7 @@ for path in tqdm(args.in_dir.glob('**/*')):
         path_out = args.out_dir / path.relative_to(args.in_dir)
         path_out.mkdir(parents=True, exist_ok=True)
     else:
-        if path.suffix in ['.png', '.tif']:
+        if path.suffix in ['.png', '.tif', '.npy']:
             path_out = args.out_dir / path.relative_to(args.in_dir)
             center = None
             if args.mode == 'mass':
