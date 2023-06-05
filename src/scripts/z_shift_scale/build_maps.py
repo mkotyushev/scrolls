@@ -44,7 +44,7 @@ def build_maps(
     volume_mean_per_z_target,
     z_start=0,
     z_end=N_SLICES,
-    patch_size=(256, 256),
+    patch_size=256,
     overlap_divider=2,
     model='no_y',
     normalize=True,
@@ -77,7 +77,7 @@ def build_maps(
         z_end=z_end,
         transform=None,
         patch_size=patch_size,
-        patch_step=tuple(s // overlap_divider for s in patch_size),
+        patch_step=patch_size // overlap_divider,
     )
 
     z_shifts, z_scales, y_shifts, y_scales, shape_patches, shape_original, shape_before_padding = \
@@ -217,7 +217,7 @@ def main():
         volume_mean_per_z_target=volume_mean_per_z_target,
         z_start=17,
         z_end=50,
-        patch_size=(args.patch_size, args.patch_size),
+        patch_size=args.patch_size,
         overlap_divider=args.overlap_divider,
         model=args.model,
         sigma=None,
