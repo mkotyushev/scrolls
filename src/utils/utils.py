@@ -636,6 +636,9 @@ def fit_x_shift_scale(x, y, x_target, y_target, model='no_y_scale'):
         ).x
         y_scale = 1
         y_shift = 0
+        
+        x_shift *= X_SHIFT_MULTIPLIER
+        x_scale *= X_SCALE_MULTIPLIER
     elif model == 'independent_y_scale':
         def fun(p):
             x_shift, x_scale, y_scale = p
@@ -652,6 +655,9 @@ def fit_x_shift_scale(x, y, x_target, y_target, model='no_y_scale'):
             bounds=([-1, 0.1, 0.1], [1, 10, 3]),
         ).x
         y_shift = 0
+        x_shift *= X_SHIFT_MULTIPLIER
+        x_scale *= X_SCALE_MULTIPLIER
+        y_scale *= Y_SCALE_MULTIPLIER
     elif model == 'independent_y_shift_scale':
         def fun(p):
             x_shift, x_scale, y_shift, y_scale = p
@@ -667,6 +673,10 @@ def fit_x_shift_scale(x, y, x_target, y_target, model='no_y_scale'):
             x0=[0, 1, 1, 0],
             bounds=([-1, 0.1, 0.1, -1], [1, 10, 3, 1]),
         ).x
+        x_shift *= X_SHIFT_MULTIPLIER
+        x_scale *= X_SCALE_MULTIPLIER
+        y_shift *= Y_SHIFT_MULTIPLIER
+        y_scale *= Y_SCALE_MULTIPLIER
     elif model == 'beer_lambert_law':
         def fun(p):
             x_shift, x_scale, total_absorbance = p
@@ -682,13 +692,11 @@ def fit_x_shift_scale(x, y, x_target, y_target, model='no_y_scale'):
             x0=[0, 1, 1e-3],
             bounds=([-1, 0.1, 0.0], [1, 10, 1]),
         ).x
-        y_scale = np.exp(-total_absorbance * x_scale)
+        x_shift *= X_SHIFT_MULTIPLIER
+        x_scale *= X_SCALE_MULTIPLIER
+        total_absorbance *= ABSORBANCE_MULTIPLIER
+        y_scale = np.exp(-total_absorbance * (x_scale - 1))
         y_shift = 0
-    
-    x_shift *= X_SHIFT_MULTIPLIER
-    x_scale *= X_SCALE_MULTIPLIER
-    y_shift *= Y_SHIFT_MULTIPLIER
-    y_scale *= Y_SCALE_MULTIPLIER
     
     return x_shift, x_scale, y_shift, y_scale
 
