@@ -518,10 +518,10 @@ class SurfaceVolumeDatasetTest:
         scroll_mask = copy_crop_pad_2d(self.scroll_masks[outer_index], self.patch_size, patch_info['bbox'])
         masks = [scroll_mask]
 
-        if self.ir_images is not None:
+        if len(self.ir_images) > 0:
             ir_image = copy_crop_pad_2d(self.ir_images[outer_index], self.patch_size, patch_info['bbox'])
             masks.append(ir_image)
-        if self.ink_masks is not None:
+        if len(self.ink_masks) > 0:
             ink_mask = copy_crop_pad_2d(self.ink_masks[outer_index], self.patch_size, patch_info['bbox'])
             masks.append(ink_mask)
 
