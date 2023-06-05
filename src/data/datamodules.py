@@ -40,6 +40,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         self,
         surface_volume_dirs: List[str] | str = './data/train',	
         surface_volume_dirs_test: Optional[List[str] | str] = None,	
+        z_shift_scale_pathes_test: Optional[List[str] | str] = None,
         val_dir_indices: Optional[List[int] | int] = None,
         z_start: int = 24,
         z_end: int = 48,
@@ -314,6 +315,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         if self.test_dataset is None and self.hparams.surface_volume_dirs_test is not None:
             self.test_dataset = SurfaceVolumeDatasetTest(
                 pathes=self.hparams.surface_volume_dirs_test,
+                z_shift_scale_pathes=self.hparams.z_shift_scale_pathes_test,
                 z_start=self.hparams.z_start,
                 z_end=self.hparams.z_end,
                 transform=self.test_transform,

@@ -355,6 +355,7 @@ class SurfaceVolumeDatasetTest:
         patch_size: int | Tuple[int, int] = 256, 
         patch_step: None | int | Tuple[int, int] = 128,
         do_z_shift_scale: bool = True,
+        z_shift_scale_pathes: Optional[List[str]] = None,
     ):
         self.pathes = pathes
         self.z_start = z_start
@@ -367,6 +368,10 @@ class SurfaceVolumeDatasetTest:
         self.patch_step = to_2tuple(patch_step)
         self.do_z_shift_scale = do_z_shift_scale
 
+        if z_shift_scale_pathes is None:
+            z_shift_scale_pathes = pathes
+        self.z_shift_scale_pathes = z_shift_scale_pathes
+
         self.build_data()
 
     def build_data(self):
@@ -377,8 +382,8 @@ class SurfaceVolumeDatasetTest:
         self.ink_masks = []
         self.z_shifts = []
         self.z_scales = []
-        for root in self.pathes:
-            root = Path(root)
+        for root, z_shift_scale_root in zip(self.pathes, self.z_shift_scale_pathes):
+            root, z_shift_scale_root = Path(root), Path(z_shift_scale_root)
             
             # Volume
             volume = []
@@ -419,8 +424,8 @@ class SurfaceVolumeDatasetTest:
                 )
         
             # Z shift and scale maps
-            self.z_shifts.append(np.load(str(root / 'z_shift.npy')))
-            self.z_scales.append(np.load(str(root / 'z_scale.npy')))
+            self.z_shifts.append(np.load(str(z_shift_scale_root / 'z_shift.npy')))
+            self.z_scales.append(np.load(str(z_shift_scale_root / 'z_scale.npy')))
 
         # Build index
         self.shape_patches = []
