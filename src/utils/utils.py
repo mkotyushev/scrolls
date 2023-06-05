@@ -2,7 +2,7 @@ import contextlib
 import logging
 import math
 import os
-import random
+from pathlib import Path
 import string
 import sys
 import cv2
@@ -25,7 +25,7 @@ from torchvision.utils import make_grid
 from scipy import interpolate, optimize
 from tqdm import tqdm
 
-from src.model.unet_3d_acs import AcsConvnextWrapper
+from src.data.constants import N_SLICES, MAX_PIXEL_VALUE
 from src.model.swin_transformer_v2_3d import nhwdc_to, Format as Format3d
 
 
@@ -743,3 +743,179 @@ class PredictionWriter(BasePredictionWriter):
             for i, (id_, proba) in tqdm(enumerate(zip(ids, probas))):
                 out_path = os.path.join(self.images_output_dir, f'{id_}_{self.image_postfix}.png')
                 cv2.imwrite(out_path, (proba * 255).astype(np.uint8))
+
+
+
+def calculate_pad_width(image_shape, image_ndim, step):
+    return [
+        (0, math.ceil(image_shape[i] / step[i]) * step[i] - image_shape[i])
+        if image_shape[i] % step[i] != 0 else 
+        (0, 0)
+        for i in range(image_ndim)
+    ]
+
+
+def pad_divisible_2d(image: np.ndarray, size: tuple, step: Optional[tuple] = None):
+    """Pad 2D or 3D image to be divisible by size."""
+    assert image.ndim in (2, 3)
+    assert len(size) == image.ndim
+
+    if step is None:
+        step = size
+
+    pad_width = calculate_pad_width(image.shape, image.ndim, step)
+    return np.pad(
+        image, 
+        pad_width, 
+        'constant', 
+        constant_values=0
+    )
+
+
+def read_data(surface_volume_dirs, z_start=None, z_end=None):
+    if z_start is None:
+        z_start = 0
+    if z_end is None:
+        z_end = N_SLICES
+
+    # Volumes
+    volumes = []
+    for root in surface_volume_dirs:
+        root = Path(root)
+        volume = None
+        for i, layer_index in tqdm(enumerate(range(z_start, z_end))):
+            v = cv2.imread(
+                str(root / 'surface_volume' / f'{layer_index:02}.tif'),
+                cv2.IMREAD_UNCHANGED
+            )
+            if volume is None:
+                volume = np.zeros((*v.shape, z_end - z_start), dtype=np.uint16)
+            volume[..., i] = v
+        volumes.append(volume)
+
+    # Masks: binary masks of scroll regions
+    scroll_masks = []
+    for root in surface_volume_dirs:
+        root = Path(root)
+        scroll_masks.append(
+            (
+                cv2.imread(
+                    str(root / 'mask.png'),
+                    cv2.IMREAD_GRAYSCALE
+                ) > 0
+            ).astype(np.uint8)
+        )
+
+    # (Optional) IR images: grayscale images
+    ir_images = []
+    for root in surface_volume_dirs:
+        root = Path(root)
+        path = root / 'ir.png'
+        if path.exists():
+            image = cv2.imread(
+                str(path),
+                cv2.IMREAD_GRAYSCALE
+            )
+            ir_images.append(image)
+    if len(ir_images) == 0:
+        ir_images = None
+    
+    # (Optional) labels: binary masks of ink
+    ink_masks = []
+    for root in surface_volume_dirs:
+        root = Path(root)
+        path = root / 'inklabels.png'
+        if path.exists():
+            image = (
+                cv2.imread(
+                    str(path),
+                    cv2.IMREAD_GRAYSCALE
+                ) > 0
+            ).astype(np.uint8)
+            ink_masks.append(image)
+    if len(ink_masks) == 0:
+        ink_masks = None
+
+    # Calculate statistics
+    subtracts, divides = [], []
+    for volume, scroll_mask in zip(volumes, scroll_masks):
+        subtract, divide = calculate_statistics(
+            volume, 
+            scroll_mask, 
+            mode='volume_mean_per_z', 
+            normalize='minmax'
+        )
+        subtracts.append(subtract)
+        divides.append(divide)
+
+    logger.info(f'Loaded {len(volumes)} volumes from {surface_volume_dirs} dirs')
+    logger.info(f'Statistics: subtracts={subtracts}, divides={divides}')
+
+    return \
+        volumes, \
+        scroll_masks, \
+        ir_images, \
+        ink_masks, \
+        subtracts, \
+        divides
+
+
+def calc_mean_std(volumes, scroll_masks):
+    # mean, std across all volumes
+    sums, sums_sq, ns = [], [], []
+    for volume, scroll_mask in zip(volumes, scroll_masks):
+        scroll_mask = scroll_mask > 0
+        sums.append((volume[scroll_mask] / MAX_PIXEL_VALUE).sum())
+        sums_sq.append(((volume[scroll_mask] / MAX_PIXEL_VALUE) ** 2).sum())
+        ns.append(scroll_mask.sum() * N_SLICES)
+    mean = sum(sums) / sum(ns)
+
+    sum_sq = 0
+    for sum_, sum_sq_, n in zip(sums, sums_sq, ns):
+        sum_sq += (sum_sq_ - 2 * sum_ * mean + mean ** 2 * n)
+    std = np.sqrt(sum_sq / sum(ns))
+
+    return mean, std
+
+
+def get_num_samples_and_weights(scroll_masks, img_size):
+    assert all(
+        [
+            scroll_mask.min() == 0 and scroll_mask.max() == 1
+            for scroll_mask in scroll_masks
+        ]
+    )
+    areas = [
+        scroll_mask.sum()
+        for scroll_mask in scroll_masks
+    ]
+    num_samples = sum(
+        [
+            math.ceil(area / (img_size ** 2))
+            for area in areas
+        ]
+    )
+    weights = np.array(areas) / sum(areas)
+    return num_samples, weights
+
+
+def rotate_limit_to_min_scale(rotate_limit_deg, proj=True):
+    rotate_limit_rad = np.deg2rad(rotate_limit_deg)
+    if proj:
+        scale = np.sqrt(1 / (1 - np.sin(2 * rotate_limit_rad)))
+    else:
+        scale = np.cos(rotate_limit_rad) + np.sin(rotate_limit_rad)
+    return scale
+
+
+def copy_crop_pad_2d(img, size, bbox, fill_value=0):
+    """Create new image by cropping bbox from img with right and bottom padding to size.
+        bbox: (h_start, w_start, h_end, w_end)
+    """
+    assert len(size) == 2
+    img_cropped = np.full((*size, *img.shape[2:]), fill_value=fill_value, dtype=img.dtype)
+    img_cropped[:bbox[2]-bbox[0], :bbox[3]-bbox[1]] = img[
+        bbox[0]:bbox[2],
+        bbox[1]:bbox[3]
+    ]
+    return img_cropped

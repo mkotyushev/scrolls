@@ -1,41 +1,38 @@
-import math
+import logging
 import cv2
+import pyvips
 import numpy as np
+from pathlib import Path
 from tqdm import tqdm
 from scipy.ndimage import gaussian_filter
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from patchify import patchify
 from timm.layers import to_2tuple
 
+from src.data.constants import N_SLICES, Z_TARGET, VOLUME_MEAN_PER_Z_TARGET, CENTER_Z
+from src.scripts.z_shift_scale.scale import (
+    apply_z_shift_scale, 
+    build_z_shift_scale_transform, 
+    calculate_input_z_range
+)
 from src.utils.utils import (
+    calculate_pad_width,
+    copy_crop_pad_2d,
     normalize_volume, 
     get_z_volume_mean_per_z, 
     fit_x_shift_scale, 
     build_nan_or_outliers_mask, 
-    interpolate_masked_pixels
+    interpolate_masked_pixels,
+    pad_divisible_2d
 )
 
 
-def pad_divisible_2d(image: np.ndarray, size: tuple, step: Optional[tuple] = None):
-    """Pad 2D or 3D image to be divisible by size."""
-    assert image.ndim in (2, 3)
-    assert len(size) == image.ndim
-
-    if step is None:
-        step = size
-
-    pad_width = [
-        (0, math.ceil(image.shape[i] / step[i]) * step[i] - image.shape[i])
-        if image.shape[i] % step[i] != 0 else 
-        (0, 0)
-        for i in range(image.ndim)
-    ]
-    return np.pad(
-        image, 
-        pad_width, 
-        'constant', 
-        constant_values=0
-    )
+logger = logging.getLogger(__name__)
+logging.basicConfig(
+    format='%(asctime)s %(levelname)-8s %(message)s',
+    level=logging.INFO,
+    datefmt='%Y-%m-%d %H:%M:%S',
+)
 
 
 class InMemorySurfaceVolumeDataset:
@@ -348,30 +345,205 @@ class InMemorySurfaceVolumeDataset:
         return {k: v for k, v in output.items() if k in output_keys}
 
 
-# Constants of fragment 2
-CENTER_Z = 32
-Z_TARGET = np.array([ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15, 16,
-       17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33,
-       34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
-       51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64])
-VOLUME_MEAN_PER_Z_TARGET = np.array([ 5.13208528e-01,  5.16408885e-01,  5.19434831e-01,  5.21984080e-01,
-        5.23897714e-01,  5.25018397e-01,  5.25379059e-01,  5.25026003e-01,
-        5.23951138e-01,  5.22097850e-01,  5.19750996e-01,  5.17430883e-01,
-        5.15448979e-01,  5.14234214e-01,  5.14447837e-01,  5.16901802e-01,
-        5.22654541e-01,  5.32695096e-01,  5.47928805e-01,  5.69591645e-01,
-        5.99385291e-01,  6.39242319e-01,  6.90646470e-01,  7.53476899e-01,
-        8.24894873e-01,  8.98176349e-01,  9.61862669e-01,  1.00000000e+00,
-        9.94738465e-01,  9.31891064e-01,  8.08179900e-01,  6.36992343e-01,
-        4.45879897e-01,  2.67190902e-01,  1.26850405e-01,  3.78383233e-02,
-       -3.99358636e-16,  3.82105731e-03,  3.56873080e-02,  8.23619561e-02,
-        1.33404854e-01,  1.82043457e-01,  2.24758615e-01,  2.60212419e-01,
-        2.88509731e-01,  3.10495925e-01,  3.27333343e-01,  3.40104985e-01,
-        3.49733725e-01,  3.56971222e-01,  3.62402574e-01,  3.66477129e-01,
-        3.69507893e-01,  3.71695538e-01,  3.73246001e-01,  3.74380452e-01,
-        3.75340047e-01,  3.76180927e-01,  3.76906288e-01,  3.77474479e-01,
-        3.77896668e-01,  3.78197379e-01,  3.78455692e-01,  3.78703337e-01,
-        3.78895042e-01])
-MINMAX_SUBTRACT, MINMAX_DIVIDE = (22060.014794403214, 9586.303729423242)
+class SurfaceVolumeDatasetTest:
+    def __init__(
+        self, 
+        pathes, 
+        z_start,
+        z_end,
+        transform=None, 
+        patch_size: int | Tuple[int, int] = 256, 
+        patch_step: None | int | Tuple[int, int] = 128,
+        do_z_shift_scale: bool = True,
+    ):
+        self.pathes = pathes
+        self.z_start = z_start
+        self.z_end = z_end
+        self.transform = transform
+
+        if patch_step is None:
+            patch_step = patch_size
+        self.patch_size = to_2tuple(patch_size)
+        self.patch_step = to_2tuple(patch_step)
+        self.do_z_shift_scale = do_z_shift_scale
+
+        self.build_data()
+
+    def build_data(self):
+        # Load data
+        self.volumes = []
+        self.scroll_masks = []
+        self.ir_images = []
+        self.ink_masks = []
+        self.z_shifts = []
+        self.z_scales = []
+        for root in self.pathes:
+            root = Path(root)
+            
+            # Volume
+            volume = []
+            for layer_index in range(0, N_SLICES):
+                volume.append(
+                    pyvips.Image.new_from_file(str(root / 'surface_volume' / f'{layer_index:02}.tif'))
+                )
+            self.volumes.append(volume)
+
+            # Scroll mask
+            self.scroll_masks.append(
+                (
+                    cv2.imread(
+                        str(root / 'mask.png'),
+                        cv2.IMREAD_GRAYSCALE
+                    ) > 0
+                ).astype(np.uint8)
+            )
+
+            # IR image
+            if (root / 'ir_image.png').exists():
+                self.ir_images.append(
+                    cv2.imread(
+                        str(root / 'ir_image.png'),
+                        cv2.IMREAD_GRAYSCALE
+                    )
+                )
+            
+            # Ink mask
+            if (root / 'ink_mask.png').exists():
+                self.ink_masks.append(
+                    (
+                        cv2.imread(
+                            str(root / 'ink_mask.png'),
+                            cv2.IMREAD_GRAYSCALE
+                        ) > 0
+                    ).astype(np.uint8)
+                )
+        
+            # Z shift and scale maps
+            self.z_shifts.append(np.load(str(root / 'z_shift.npy')))
+            self.z_scales.append(np.load(str(root / 'z_scale.npy')))
+
+        # Build index
+        self.shape_patches = []
+        self.index_to_patch_info: List[Dict[int, Any]] = []
+        for i, scroll_mask in enumerate(self.scroll_masks):
+            scroll_mask = self.scroll_masks[i]
+            
+            n_h_starts = 0
+            for j, h_start in enumerate(range(0, scroll_mask.shape[0], self.patch_step[0])):
+                n_h_starts += 1
+                n_w_starts = 0
+                # Note: although openslide handles out of bounds by zero padding, 
+                # for convenience we clamp h_end and w_end and pad images manually later
+                h_end = min(h_start + self.patch_size[0], scroll_mask.shape[0])
+                for k, w_start in enumerate(range(0, scroll_mask.shape[1], self.patch_step[1])):
+                    n_w_starts += 1
+                    w_end = min(w_start + self.patch_size[1], scroll_mask.shape[1])
+                    if scroll_mask[h_start:h_end, w_start:w_end].sum() > 0:
+                        patch_info = {
+                            'outer_index': i,
+                            'indices': (k, j),  # Note: (w, h)
+                            'bbox': (h_start, w_start, h_end, w_end),
+                        }
+                        self.index_to_patch_info.append(patch_info)
+                    # Only single patch out of bounds is allowed
+                    # as in patchify (if step < size, multiple such patches are possible)
+                    if w_start + self.patch_size[1] >= scroll_mask.shape[1]:
+                        break
+                # Only single patch out of bounds is allowed
+                # as in patchify (if step < size, multiple such patches are possible)
+                if h_start + self.patch_size[0] >= scroll_mask.shape[0]:
+                    break
+
+            self.shape_patches.append((n_h_starts, n_w_starts))
+        
+    def __len__(self):
+        return len(self.index_to_patch_info)
+
+    def __getitem__(self, idx):
+        patch_info = self.index_to_patch_info[idx]
+        outer_index = patch_info['outer_index']
+
+        # Read part of volume
+        # Note: zero padding is applied to z_scale which could lead to zero division
+        # but it is handled later in transform
+        z_shift = copy_crop_pad_2d(self.z_shifts[outer_index], self.patch_size, patch_info['bbox'])
+        z_scale = copy_crop_pad_2d(self.z_scales[outer_index], self.patch_size, patch_info['bbox'])
+        
+        z_start_input, z_end_input = 0, N_SLICES
+        if self.do_z_shift_scale:
+            z_start_input, z_end_input = calculate_input_z_range(
+                self.z_start, 
+                self.z_end, 
+                z_shift,
+                z_scale,
+            )
+        print(
+            f'z_shift: {z_shift.min():.2f} {z_shift.max():.2f}, '
+            f'z_scale: {z_scale.min():.2f} {z_scale.max():.2f}, '
+            f'z_start_input: {z_start_input}, '
+            f'z_end_input: {z_end_input}'
+        )
+
+        image = np.full(
+            (*self.patch_size, z_end_input - z_start_input), 
+            fill_value=0, 
+            dtype=np.uint16
+        )
+        volume = self.volumes[outer_index]
+        for i, layer_index in enumerate(range(z_start_input, z_end_input)):
+            slice_ = volume[layer_index].crop(
+                patch_info['bbox'][1],
+                patch_info['bbox'][0],
+                patch_info['bbox'][3] - patch_info['bbox'][1],
+                patch_info['bbox'][2] - patch_info['bbox'][0],
+            ).numpy()
+            image[..., i][:slice_.shape[0], :slice_.shape[1]] = slice_
+
+        # Apply z shift and scale
+        if self.do_z_shift_scale:
+            z_shift_scale_transform = build_z_shift_scale_transform(
+                image.shape, 
+                z_start_input, 
+                self.z_start, 
+                z_shift, 
+                z_scale, 
+            )
+            image = apply_z_shift_scale(
+                image,
+                z_shift_scale_transform,
+                self.z_start,
+                self.z_end,
+            )
+
+        # Get masks
+        scroll_mask = copy_crop_pad_2d(self.scroll_masks[outer_index], self.patch_size, patch_info['bbox'])
+        masks = [scroll_mask]
+
+        # Get shapes of full volume before and after padding
+        path = self.pathes[outer_index]
+        indices = np.array(patch_info['indices'])
+        shape_patches = np.array(self.shape_patches[outer_index])
+        shape_before_padding = np.array(self.scroll_masks[outer_index].shape)
+        pad_width = calculate_pad_width(shape_before_padding, 2, self.patch_step)
+        # TODO: fix naming
+        shape_original = np.array([s + p[1] for s, p in zip(shape_before_padding, pad_width)])
+        
+        output = {
+            'image': image,  # volume, (H, W, D)
+            'masks': masks,  # masks, (H, W) each
+            'path': path,  # path, 1
+            'indices': indices,  # indices, 2
+            'shape_patches': shape_patches,  # shape_patches, 2
+            'subtract': None,  # subtract, 1
+            'divide': None,  # divide, 1
+            'shape_original': shape_original,  # shape_original, 3
+            'shape_before_padding': shape_before_padding,  # shape_before_padding, 3
+        }
+
+        if self.transform is not None:
+            output = self.transform(**output)
+
+        return output
 
 
 def build_z_shift_scale_maps(

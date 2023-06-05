@@ -1,18 +1,18 @@
 import logging
 import math
-import cv2
 import albumentations as A
-import numpy as np
 from torch.utils.data.sampler import WeightedRandomSampler
-from pathlib import Path
 from typing import List, Optional
 from lightning import LightningDataModule
 from torch.utils.data import DataLoader
 from albumentations.pytorch import ToTensorV2
-from tqdm import tqdm
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 
-from src.data.datasets import InMemorySurfaceVolumeDataset
+from src.data.constants import MAX_PIXEL_VALUE
+from src.data.datasets import (
+    InMemorySurfaceVolumeDataset,
+    SurfaceVolumeDatasetTest, 
+)
 from src.data.transforms import (
     CopyPastePositive,
     CutMix,
@@ -23,148 +23,15 @@ from src.data.transforms import (
     ToCHWD,
     ToFloatMasks,
 )
-from src.utils.utils import calculate_statistics, surface_volume_collate_fn
+from src.utils.utils import (
+    surface_volume_collate_fn,
+    read_data, 
+    calc_mean_std,
+    get_num_samples_and_weights,
+)
 
 
 logger = logging.getLogger(__name__)
-
-
-N_SLICES = 65
-MAX_PIXEL_VALUE = 65536
-def read_data(surface_volume_dirs, z_start=None, z_end=None):
-    if z_start is None:
-        z_start = 0
-    if z_end is None:
-        z_end = N_SLICES
-
-    # Volumes
-    volumes = []
-    for root in surface_volume_dirs:
-        root = Path(root)
-        volume = None
-        for i, layer_index in tqdm(enumerate(range(z_start, z_end))):
-            v = cv2.imread(
-                str(root / 'surface_volume' / f'{layer_index:02}.tif'),
-                cv2.IMREAD_UNCHANGED
-            )
-            if volume is None:
-                volume = np.zeros((*v.shape, z_end - z_start), dtype=np.uint16)
-            volume[..., i] = v
-        volumes.append(volume)
-
-    # Masks: binary masks of scroll regions
-    scroll_masks = []
-    for root in surface_volume_dirs:
-        root = Path(root)
-        scroll_masks.append(
-            (
-                cv2.imread(
-                    str(root / 'mask.png'),
-                    cv2.IMREAD_GRAYSCALE
-                ) > 0
-            ).astype(np.uint8)
-        )
-
-    # (Optional) IR images: grayscale images
-    ir_images = []
-    for root in surface_volume_dirs:
-        root = Path(root)
-        path = root / 'ir.png'
-        if path.exists():
-            image = cv2.imread(
-                str(path),
-                cv2.IMREAD_GRAYSCALE
-            )
-            ir_images.append(image)
-    if len(ir_images) == 0:
-        ir_images = None
-    
-    # (Optional) labels: binary masks of ink
-    ink_masks = []
-    for root in surface_volume_dirs:
-        root = Path(root)
-        path = root / 'inklabels.png'
-        if path.exists():
-            image = (
-                cv2.imread(
-                    str(path),
-                    cv2.IMREAD_GRAYSCALE
-                ) > 0
-            ).astype(np.uint8)
-            ink_masks.append(image)
-    if len(ink_masks) == 0:
-        ink_masks = None
-
-    # Calculate statistics
-    subtracts, divides = [], []
-    for volume, scroll_mask in zip(volumes, scroll_masks):
-        subtract, divide = calculate_statistics(
-            volume, 
-            scroll_mask, 
-            mode='volume_mean_per_z', 
-            normalize='minmax'
-        )
-        subtracts.append(subtract)
-        divides.append(divide)
-
-    logger.info(f'Loaded {len(volumes)} volumes from {surface_volume_dirs} dirs')
-    logger.info(f'Statistics: subtracts={subtracts}, divides={divides}')
-
-    return \
-        volumes, \
-        scroll_masks, \
-        ir_images, \
-        ink_masks, \
-        subtracts, \
-        divides
-
-
-def calc_mean_std(volumes, scroll_masks):
-    # mean, std across all volumes
-    sums, sums_sq, ns = [], [], []
-    for volume, scroll_mask in zip(volumes, scroll_masks):
-        scroll_mask = scroll_mask > 0
-        sums.append((volume[scroll_mask] / MAX_PIXEL_VALUE).sum())
-        sums_sq.append(((volume[scroll_mask] / MAX_PIXEL_VALUE) ** 2).sum())
-        ns.append(scroll_mask.sum() * N_SLICES)
-    mean = sum(sums) / sum(ns)
-
-    sum_sq = 0
-    for sum_, sum_sq_, n in zip(sums, sums_sq, ns):
-        sum_sq += (sum_sq_ - 2 * sum_ * mean + mean ** 2 * n)
-    std = np.sqrt(sum_sq / sum(ns))
-
-    return mean, std
-
-
-def get_num_samples_and_weights(scroll_masks, img_size):
-    assert all(
-        [
-            scroll_mask.min() == 0 and scroll_mask.max() == 1
-            for scroll_mask in scroll_masks
-        ]
-    )
-    areas = [
-        scroll_mask.sum()
-        for scroll_mask in scroll_masks
-    ]
-    num_samples = sum(
-        [
-            math.ceil(area / (img_size ** 2))
-            for area in areas
-        ]
-    )
-    weights = np.array(areas) / sum(areas)
-    return num_samples, weights
-
-
-def rotate_limit_to_min_scale(rotate_limit_deg, proj=True):
-    rotate_limit_rad = np.deg2rad(rotate_limit_deg)
-    if proj:
-        scale = np.sqrt(1 / (1 - np.sin(2 * rotate_limit_rad)))
-    else:
-        scale = np.cos(rotate_limit_rad) + np.sin(rotate_limit_rad)
-    return scale
 
 
 class SurfaceVolumeDatamodule(LightningDataModule):
@@ -445,28 +312,13 @@ class SurfaceVolumeDatamodule(LightningDataModule):
             )
 
         if self.test_dataset is None and self.hparams.surface_volume_dirs_test is not None:
-            volumes, \
-            scroll_masks, \
-            ir_images, \
-            ink_masks, \
-            subtracts, \
-            divides = \
-                read_data(
-                    self.hparams.surface_volume_dirs_test, 
-                    z_start=self.hparams.z_start,
-                    z_end=self.hparams.z_end,
-                )
-            self.test_dataset = InMemorySurfaceVolumeDataset(
-                volumes=volumes, 
-                scroll_masks=scroll_masks, 
+            self.test_dataset = SurfaceVolumeDatasetTest(
                 pathes=self.hparams.surface_volume_dirs_test,
-                ir_images=ir_images, 
-                ink_masks=ink_masks,
+                z_start=self.hparams.z_start,
+                z_end=self.hparams.z_end,
                 transform=self.test_transform,
                 patch_size=val_test_patch_size,
                 patch_step=val_test_patch_step,
-                subtracts=subtracts,
-                divides=divides,
             )
         
         # To rebuild normalization
