@@ -399,20 +399,20 @@ class SurfaceVolumeDatasetTest:
             )
 
             # IR image
-            if (root / 'ir_image.png').exists():
+            if (root / 'ir.png').exists():
                 self.ir_images.append(
                     cv2.imread(
-                        str(root / 'ir_image.png'),
+                        str(root / 'ir.png'),
                         cv2.IMREAD_GRAYSCALE
                     )
                 )
             
             # Ink mask
-            if (root / 'ink_mask.png').exists():
+            if (root / 'inklabels.png').exists():
                 self.ink_masks.append(
                     (
                         cv2.imread(
-                            str(root / 'ink_mask.png'),
+                            str(root / 'inklabels.png'),
                             cv2.IMREAD_GRAYSCALE
                         ) > 0
                     ).astype(np.uint8)
@@ -477,12 +477,6 @@ class SurfaceVolumeDatasetTest:
                 z_shift,
                 z_scale,
             )
-        print(
-            f'z_shift: {z_shift.min():.2f} {z_shift.max():.2f}, '
-            f'z_scale: {z_scale.min():.2f} {z_scale.max():.2f}, '
-            f'z_start_input: {z_start_input}, '
-            f'z_end_input: {z_end_input}'
-        )
 
         image = np.full(
             (*self.patch_size, z_end_input - z_start_input), 
@@ -518,6 +512,13 @@ class SurfaceVolumeDatasetTest:
         # Get masks
         scroll_mask = copy_crop_pad_2d(self.scroll_masks[outer_index], self.patch_size, patch_info['bbox'])
         masks = [scroll_mask]
+
+        if self.ir_images is not None:
+            ir_image = copy_crop_pad_2d(self.ir_images[outer_index], self.patch_size, patch_info['bbox'])
+            masks.append(ir_image)
+        if self.ink_masks is not None:
+            ink_mask = copy_crop_pad_2d(self.ink_masks[outer_index], self.patch_size, patch_info['bbox'])
+            masks.append(ink_mask)
 
         # Get shapes of full volume before and after padding
         path = self.pathes[outer_index]
