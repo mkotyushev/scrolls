@@ -115,12 +115,6 @@ def main():
 
     logger.info(f'z_shifts: ({z_shifts[0].min()}, {z_shifts[0].max()})')
     logger.info(f'z_scales: ({z_scales[0].min()}, {z_scales[0].max()})')
-    logger.info(
-        f'Input shape: {volumes[0].shape}, '
-        f'output shape: {(volumes[0].shape[0], volumes[0].shape[1], z_end - z_start)}, '
-        f'z_shifts shape: {z_shifts[0].shape}, '
-        f'z_scales shape: {z_scales[0].shape}'
-    )
 
     # Get z range
     z_start, z_end = 0, N_SLICES
@@ -134,6 +128,13 @@ def main():
     logger.info(f'Reading slices {z_start_input} to {z_end_input}')
     volumes, *_ = \
         read_data([args.input_dir], z_start=z_start_input, z_end=z_end_input)
+
+    logger.info(
+        f'Input shape: {volumes[0].shape}, '
+        f'output shape: {(volumes[0].shape[0], volumes[0].shape[1], z_end - z_start)}, '
+        f'z_shifts shape: {z_shifts[0].shape}, '
+        f'z_scales shape: {z_scales[0].shape}'
+    )
 
     # Build transform
     func = build_z_shift_scale_transform(
@@ -149,8 +150,6 @@ def main():
     volume_transformed = apply_z_shift_scale(
         volumes[0],
         func,
-        z_start_input, 
-        z_end_input,
         z_start,
         z_end,
     )
@@ -167,3 +166,7 @@ def main():
             str(path_out),
             volume_transformed[:, :, z],
         )
+
+
+if __name__ == '__main__':
+    main()
