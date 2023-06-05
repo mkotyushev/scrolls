@@ -1,3 +1,4 @@
+import gc
 import logging
 import cv2
 import pyvips
@@ -460,6 +461,8 @@ class SurfaceVolumeDatasetTest:
         return len(self.index_to_patch_info)
 
     def __getitem__(self, idx):
+        gc.collect()
+        
         patch_info = self.index_to_patch_info[idx]
         outer_index = patch_info['outer_index']
 
