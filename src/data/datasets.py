@@ -433,8 +433,6 @@ class SurfaceVolumeDatasetTest:
             for j, h_start in enumerate(range(0, scroll_mask.shape[0], self.patch_step[0])):
                 n_h_starts += 1
                 n_w_starts = 0
-                # Note: although openslide handles out of bounds by zero padding, 
-                # for convenience we clamp h_end and w_end and pad images manually later
                 h_end = min(h_start + self.patch_size[0], scroll_mask.shape[0])
                 for k, w_start in enumerate(range(0, scroll_mask.shape[1], self.patch_step[1])):
                     n_w_starts += 1

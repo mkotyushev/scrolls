@@ -45,6 +45,11 @@ RUN /root/miniconda3/envs/scrolls/bin/pip install \
     --default-timeout=1000 \
     -r requirements.txt 
 
+# Install libvips: need to be done after pip install pyvips 
+# (which is in requirements.txt) due to some weird bug
+RUN \
+    apt-get -y install libvips libvips-dev libvips-tools
+
 # Add repo folder to PYTHONPATH
 ENV PYTHONPATH="/workspace/scrolls:${PYTHONPATH}"
 ARG PYTHONPATH="/workspace/scrolls:${PYTHONPATH}"
