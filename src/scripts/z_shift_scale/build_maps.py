@@ -6,15 +6,26 @@ import cv2
 import imagesize
 import numpy as np
 from pathlib import Path
+from scipy.ndimage import gaussian_filter
+from tqdm import tqdm
 
 from src.data.constants import (
+    N_SLICES,
     Z_TARGET, 
     Z_TARGET_FIT_START_INDEX, 
     Z_TARGET_FIT_END_INDEX,
     VOLUME_MEAN_PER_Z_TARGET,
     VOLUME_MEAN_PER_Z_TARGET_NORMALIZED,
 )
-from src.data.datasets import build_maps
+from src.data.datasets import SurfaceVolumeDatasetTest
+from src.utils.utils import (
+    calculate_minmax_mean_per_z,
+    get_z_volume_mean_per_z, 
+    fit_x_shift_scale, 
+    build_nan_or_outliers_mask, 
+    interpolate_masked_pixels,
+)
+
 
 # Usage: python src/scripts/z_shift_scale/build_maps.py --input_dir /workspace/data/fragments/train/2 --downscaled_input_dir /workspace/data/fragments_downscaled_2/train/2 --output_dir . --patch_size 256 --downscale_factor 2
 
@@ -26,68 +37,221 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S',
 )
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--input_dir', type=Path, required=True)
-parser.add_argument('--downscaled_input_dir', type=Path, required=True)
-parser.add_argument('--output_dir', type=Path, required=True)
-parser.add_argument('--patch_size', type=int, default=256)
-parser.add_argument('--downscale_factor', type=int, default=2)
-parser.add_argument('--overlap_divider', type=int, default=2)
-parser.add_argument(
-    '--model', 
-    type=str, 
-    choices=['no_y', 'independent_y_scale', 'independent_y_shift_scale', 'beer_lambert_law'], 
-    default='no_y'
-)
-parser.add_argument('--normalize', action='store_true')
 
-args = parser.parse_args()
-
-# Read original image size
-original_width, original_height = imagesize.get(args.input_dir / 'mask.png')
-
-# Build maps
-z_target = Z_TARGET[Z_TARGET_FIT_START_INDEX:Z_TARGET_FIT_END_INDEX]
-volume_mean_per_z_target = VOLUME_MEAN_PER_Z_TARGET_NORMALIZED if args.normalize else VOLUME_MEAN_PER_Z_TARGET
-volume_mean_per_z_target = volume_mean_per_z_target[Z_TARGET_FIT_START_INDEX:Z_TARGET_FIT_END_INDEX]
-
-z_shift, z_scale, y_shift, y_scale = build_maps(
-    path=args.downscaled_input_dir,
-    z_target=z_target,
-    volume_mean_per_z_target=volume_mean_per_z_target,
-    z_start=17,
-    z_end=50,
-    patch_size=(args.patch_size, args.patch_size),
-    overlap_divider=args.overlap_divider,
-    model=args.model,
+def build_maps(
+    path,
+    z_target,
+    volume_mean_per_z_target,
+    z_start=0,
+    z_end=N_SLICES,
+    patch_size=(256, 256),
+    overlap_divider=2,
+    model='no_y',
+    normalize=True,
     sigma=None,
-    normalize=args.normalize,
-)
+):
+    subtract, divide = 0, 1
+    if normalize:
+        # Dataset with all slices, patchification and no overlap
+        dataset = SurfaceVolumeDatasetTest(
+            pathes=[path],
+            z_shift_scale_pathes=None,
+            do_z_shift_scale=False,
+            z_start=0,
+            z_end=N_SLICES,
+            transform=None,
+            patch_size=patch_size,
+            patch_step=patch_size,
+        )
+        min_, max_ = calculate_minmax_mean_per_z(dataset)
+        subtract = min_
+        divide = max_ - min_
+        logger.info(f'subtract: {subtract}, divide: {divide}')
+    
+    # Dataset with partial slices, patchification and overlap
+    dataset = SurfaceVolumeDatasetTest(
+        pathes=[path],
+        z_shift_scale_pathes=None,
+        do_z_shift_scale=False,
+        z_start=z_start,
+        z_end=z_end,
+        transform=None,
+        patch_size=patch_size,
+        patch_step=tuple(s // overlap_divider for s in patch_size),
+    )
 
-# Upscale to original size
-z_shift = cv2.resize(z_shift, (original_width, original_height), interpolation=cv2.INTER_LINEAR)
-z_scale = cv2.resize(z_scale, (original_width, original_height), interpolation=cv2.INTER_LINEAR) 
-y_shift = cv2.resize(y_shift, (original_width, original_height), interpolation=cv2.INTER_LINEAR)
-y_scale = cv2.resize(y_scale, (original_width, original_height), interpolation=cv2.INTER_LINEAR)
+    z_shifts, z_scales, y_shifts, y_scales, shape_patches, shape_original, shape_before_padding = \
+        None, None, None, None, None, None, None
+    for j in tqdm(range(len(dataset))):
+        item = dataset[j]
 
-# Save
-np.save(
-    args.output_dir / 'z_shift.npy',
-    z_shift,
-)
-np.save(
-    args.output_dir / 'z_scale.npy',
-    z_scale,
-)
-np.save(
-    args.output_dir / 'y_shift.npy',
-    y_shift,
-)
-np.save(
-    args.output_dir / 'y_scale.npy',
-    y_scale,
-)
+        # For each patch, calculate shifts and scales
+        # and store them in maps
+        if z_shifts is None:
+            shape_patches = item['shape_patches'].tolist()
+            shape_original = item['shape_original'].tolist()
+            shape_before_padding = item['shape_before_padding'].tolist()
+            z_shifts = np.full(shape_patches, fill_value=np.nan, dtype=np.float32)
+            z_scales = np.full(shape_patches, fill_value=np.nan, dtype=np.float32)
+            y_shifts = np.full(shape_patches, fill_value=np.nan, dtype=np.float32)
+            y_scales = np.full(shape_patches, fill_value=np.nan, dtype=np.float32)
 
-# Save run command
-with open(args.output_dir / 'build_maps_args.txt', 'w') as f:
-    f.write(' '.join(['python'] + sys.argv))
+        z, volume_mean_per_z = get_z_volume_mean_per_z(
+            item['image'], item['masks'][0], z_start
+        )
+        volume_mean_per_z = (volume_mean_per_z - subtract) / divide
+        z_shift, z_scale, y_shift, y_scale = fit_x_shift_scale(
+            z, 
+            volume_mean_per_z, 
+            z_target, 
+            volume_mean_per_z_target,
+            model=model,
+        )
+
+        indices = item['indices']
+        z_shifts[indices[1], indices[0]] = z_shift
+        z_scales[indices[1], indices[0]] = z_scale
+        y_shifts[indices[1], indices[0]] = y_shift
+        y_scales[indices[1], indices[0]] = y_scale
+
+    # Clear outliers & nans
+    z_shifts_nan, z_shifts_outliers = build_nan_or_outliers_mask(z_shifts)
+    z_scales_nan, z_scales_outliers = build_nan_or_outliers_mask(z_scales)
+    y_shifts_nan, y_shifts_outliers = build_nan_or_outliers_mask(y_shifts)
+    y_scales_nan, y_scales_outliers = build_nan_or_outliers_mask(y_scales)
+    
+    z_shifts[z_shifts_nan] = z_shifts[~z_shifts_nan].mean()
+    z_scales[z_scales_nan] = z_scales[~z_scales_nan].mean()
+    y_shifts[y_shifts_nan] = y_shifts[~y_shifts_nan].mean()
+    y_scales[y_scales_nan] = y_scales[~y_scales_nan].mean()
+
+    mask = z_shifts_outliers | z_scales_outliers | y_scales_outliers | y_shifts_outliers
+    z_shifts = interpolate_masked_pixels(z_shifts, mask, method='linear')
+    z_scales = interpolate_masked_pixels(z_scales, mask, method='linear')
+    y_shifts = interpolate_masked_pixels(y_shifts, mask, method='linear')
+    y_scales = interpolate_masked_pixels(y_scales, mask, method='linear')
+
+    # Apply filtering
+    if sigma is not None:
+        z_shifts = gaussian_filter(z_shifts, sigma=sigma)
+        z_scales = gaussian_filter(z_scales, sigma=sigma)
+        y_shifts = gaussian_filter(y_shifts, sigma=sigma)
+        y_scales = gaussian_filter(y_scales, sigma=sigma)
+
+    # Upscale maps to the original (padded) volume size
+
+    # Note: shape could be not equal to the original volume size
+    # because of the padding used in patchification
+    z_shifts = cv2.resize(
+        z_shifts,
+        shape_original[:2][::-1],
+        interpolation=cv2.INTER_LINEAR,
+    )
+    z_scales = cv2.resize(
+        z_scales,
+        shape_original[:2][::-1],
+        interpolation=cv2.INTER_LINEAR,
+    )
+    y_shifts = cv2.resize(
+        y_shifts,
+        shape_original[:2][::-1],
+        interpolation=cv2.INTER_LINEAR,
+    )
+    y_scales = cv2.resize(
+        y_scales,
+        shape_original[:2][::-1],
+        interpolation=cv2.INTER_LINEAR,
+    )
+
+    # Crop maps to the original volume size 
+    # (padding is always 'after')
+    z_shifts = z_shifts[
+        :shape_before_padding[0],
+        :shape_before_padding[1],
+    ]
+    z_scales = z_scales[
+        :shape_before_padding[0],
+        :shape_before_padding[1],
+    ]
+    y_shifts = y_shifts[
+        :shape_before_padding[0],
+        :shape_before_padding[1],
+    ]
+    y_scales = y_scales[
+        :shape_before_padding[0],
+        :shape_before_padding[1],
+    ]
+    
+    return z_shifts, z_scales, y_shifts, y_scales
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--input_dir', type=Path, required=True)
+    parser.add_argument('--downscaled_input_dir', type=Path, required=True)
+    parser.add_argument('--output_dir', type=Path, required=True)
+    parser.add_argument('--patch_size', type=int, default=256)
+    parser.add_argument('--downscale_factor', type=int, default=2)
+    parser.add_argument('--overlap_divider', type=int, default=2)
+    parser.add_argument(
+        '--model', 
+        type=str, 
+        choices=['no_y', 'independent_y_scale', 'independent_y_shift_scale', 'beer_lambert_law'], 
+        default='no_y'
+    )
+    parser.add_argument('--normalize', action='store_true')
+
+    args = parser.parse_args()
+
+    # Read original image size
+    original_width, original_height = imagesize.get(args.input_dir / 'mask.png')
+
+    # Build maps
+    z_target = Z_TARGET[Z_TARGET_FIT_START_INDEX:Z_TARGET_FIT_END_INDEX]
+    volume_mean_per_z_target = VOLUME_MEAN_PER_Z_TARGET_NORMALIZED if args.normalize else VOLUME_MEAN_PER_Z_TARGET
+    volume_mean_per_z_target = volume_mean_per_z_target[Z_TARGET_FIT_START_INDEX:Z_TARGET_FIT_END_INDEX]
+
+    z_shift, z_scale, y_shift, y_scale = build_maps(
+        path=args.downscaled_input_dir,
+        z_target=z_target,
+        volume_mean_per_z_target=volume_mean_per_z_target,
+        z_start=17,
+        z_end=50,
+        patch_size=(args.patch_size, args.patch_size),
+        overlap_divider=args.overlap_divider,
+        model=args.model,
+        sigma=None,
+        normalize=args.normalize,
+    )
+
+    # Upscale to original size
+    z_shift = cv2.resize(z_shift, (original_width, original_height), interpolation=cv2.INTER_LINEAR)
+    z_scale = cv2.resize(z_scale, (original_width, original_height), interpolation=cv2.INTER_LINEAR) 
+    y_shift = cv2.resize(y_shift, (original_width, original_height), interpolation=cv2.INTER_LINEAR)
+    y_scale = cv2.resize(y_scale, (original_width, original_height), interpolation=cv2.INTER_LINEAR)
+
+    # Save
+    np.save(
+        args.output_dir / 'z_shift.npy',
+        z_shift,
+    )
+    np.save(
+        args.output_dir / 'z_scale.npy',
+        z_scale,
+    )
+    np.save(
+        args.output_dir / 'y_shift.npy',
+        y_shift,
+    )
+    np.save(
+        args.output_dir / 'y_scale.npy',
+        y_scale,
+    )
+
+    # Save run command
+    with open(args.output_dir / 'build_maps_args.txt', 'w') as f:
+        f.write(' '.join(['python'] + sys.argv))
+
+
+if __name__ == '__main__':
+    main()
