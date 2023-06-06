@@ -321,15 +321,22 @@ class PredictionTargetPreviewAgg(nn.Module):
                 # Do not convert type
                 pass
 
+        if isinstance(indices, torch.Tensor):
+            indices = indices.cpu().numpy()
+        if isinstance(indices, torch.Tensor):
+            shape_patches = shape_patches.cpu().numpy()
+        if isinstance(indices, torch.Tensor):
+            shape_before_padding = shape_before_padding.cpu().numpy()
+
         indices, shape_patches, shape_before_padding = \
-            indices.cpu().long().numpy(), \
-            shape_patches.cpu().long().numpy(), \
-            shape_before_padding.cpu().long().numpy()
+            indices.astype(np.int64), \
+            shape_patches.astype(np.int64), \
+            shape_before_padding.astype(np.int64)
     
         # Place patches on the preview images
-        B = arrays[list(arrays.keys())[0]]
+        B = arrays[list(arrays.keys())[0]].shape[0]
         for i in range(B):
-            path = '/'.join(pathes[i].split('/')[-2:])
+            path = str(pathes[i].relative_to(pathes[i].parent.parent))
             shape = [
                 *shape_patches[i].tolist(),
                 *patch_size,

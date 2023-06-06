@@ -71,7 +71,7 @@ def main():
     )
 
     # Dump
-    dataset.dump(args.output_dir)
+    dataset.dump(args.output_dir, only_volume=True)
 
 
 if __name__ == '__main__':

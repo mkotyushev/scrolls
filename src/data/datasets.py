@@ -337,6 +337,11 @@ class InMemorySurfaceVolumeDataset:
 
 
 class OnlineSurfaceVolumeDataset:
+    mask_name_to_base_filename = {
+        'ir_image': 'ir',
+        'ink_mask': 'inklabels',
+        'scroll_mask': 'mask',
+    }
     def __init__(
         self, 
         pathes, 
@@ -517,7 +522,7 @@ class OnlineSurfaceVolumeDataset:
             )
             
             # Apply y shift and scale maps
-            volume_transformed = (volume_transformed - y_shift) / y_scale
+            image = (image - y_shift[..., None]) / y_scale[..., None]
         
         output = {
             'image': image,  # volume, (H, W, D)
@@ -525,7 +530,7 @@ class OnlineSurfaceVolumeDataset:
 
         return output
     
-    def get_all_except_volume(self, idx):
+    def get_masks(self, idx):
         patch_info = self.index_to_patch_info[idx]
         outer_index = patch_info['outer_index']
         
@@ -540,6 +545,16 @@ class OnlineSurfaceVolumeDataset:
             ink_mask = copy_crop_pad_2d(self.ink_masks[outer_index], self.patch_size, patch_info['bbox'])
             masks.append(ink_mask)
 
+        output = {
+            'masks': masks,  # masks, (H, W) each
+        }
+
+        return output
+
+    def get_aux(self, idx):
+        patch_info = self.index_to_patch_info[idx]
+        outer_index = patch_info['outer_index']
+
         # Get shapes of full volume before and after padding
         path = self.pathes[outer_index]
         indices = np.array(patch_info['indices'])
@@ -550,7 +565,6 @@ class OnlineSurfaceVolumeDataset:
         shape_original = np.array([s + p[1] for s, p in zip(shape_before_padding, pad_width)])
         
         output = {
-            'masks': masks,  # masks, (H, W) each
             'path': path,  # path, 1
             'indices': indices,  # indices, 2
             'shape_patches': shape_patches,  # shape_patches, 2
@@ -573,35 +587,40 @@ class OnlineSurfaceVolumeDataset:
         """
         arrays = {}
 
+        patch_size = None
         if 'image' in item:
-            arrays['image'] = item['image'].unsqueeze(0)
-
+            arrays['image'] = item['image'][None, ...]
+            patch_size = item['image'].shape[-2:]
+        
         if 'masks' in item:
-            arrays['scroll_mask'] = item['masks'][0].unsqueeze(0)
+            arrays['scroll_mask'] = item['masks'][0][None, ...]
             if len(item['masks']) > 1:
-                arrays['ir_image'] = item['masks'][1].unsqueeze(0)
+                arrays['ir_image'] = item['masks'][1][None, ...]
             if len(item['masks']) > 2:
-                arrays['ink_mask'] = item['masks'][2].unsqueeze(0)
+                arrays['ink_mask'] = item['masks'][2][None, ...]
+            patch_size = item['masks'][0].shape[-2:]
+
+        assert patch_size is not None, 'provide either "image" or "masks" key'
 
         aggregator.update(
             arrays=arrays,
             pathes=[item['path']],
-            patch_size=item['masks'][0].shape[-2:],
-            indices=item['indices'].unsqueeze(0), 
-            shape_patches=item['shape_patches'].unsqueeze(0),
-            shape_original=item['shape_original'].unsqueeze(0),
-            shape_before_padding=item['shape_before_padding'].unsqueeze(0),
+            patch_size=patch_size,
+            indices=item['indices'][None, ...], 
+            shape_patches=item['shape_patches'][None, ...],
+            shape_original=item['shape_original'][None, ...],
+            shape_before_padding=item['shape_before_padding'][None, ...],
         )
 
     def __getitem__(self, idx):
-        output = {**self.get_volume(idx), **self.get_all_except_volume()}
+        output = {**self.get_volume(idx), **self.get_masks(idx), **self.get_aux(idx)}
 
         if self.transform is not None:
             output = self.transform(**output)
 
         return output
     
-    def dump(self, output_dir):
+    def dump(self, output_dir, only_volume=False):
         assert self.transform is None, 'dump is not supported with transform'
 
         output_dir = Path(output_dir)
@@ -611,27 +630,25 @@ class OnlineSurfaceVolumeDataset:
             metrics=None,
         )
 
-        # Merge all except volume
-        for i in range(len(self)):
-            item = self.get_all_except_volume(i)
-            OnlineSurfaceVolumeDataset.aggregate(item, aggregator)
-        _, captions, previews = self.aggregator.compute()
-        self.aggregator.reset()
+        if not only_volume:
+            # Merge all except volume
+            for i in range(len(self)):
+                item = {**self.get_masks(i), **self.get_aux(i)}
+                OnlineSurfaceVolumeDataset.aggregate(item, aggregator)
+            _, captions, previews = aggregator.compute()
+            aggregator.reset()
 
-        # Save
-        for caption, preview in zip(captions, previews):
-            name, path = caption.split('|')
-            
-            path = Path(path)
-            path_inner = path.relative_to(path.parent)
-            root = output_dir / path_inner
-
-            root.mkdir(parents=True, exist_ok=True)
-
-            cv2.imwrite(
-                str((root / name).withsuffix('.png')),
-                preview,
-            )
+            # Save
+            for caption, preview in zip(captions, previews):
+                name, _ = caption.split('|')
+                name = OnlineSurfaceVolumeDataset.mask_name_to_base_filename[name]
+                
+                filepath = (output_dir / name).with_suffix('.png')
+                filepath.parent.mkdir(parents=True, exist_ok=True)
+                cv2.imwrite(
+                    str(filepath),
+                    preview,
+                )
 
         # Merge volume layer by layer
         z_start_original, z_end_original = self.z_start, self.z_end
@@ -642,29 +659,21 @@ class OnlineSurfaceVolumeDataset:
             self.z_end = z + 1
 
             # Merge all layer
-            for i in range(len(self)):
-                item = self.get_volume(i)
+            for i in tqdm(range(len(self))):
+                item = {**self.get_volume(i), **self.get_aux(i)}
                 assert item['image'].shape[2] == 1
                 item['image'] = item['image'][..., 0]
                 OnlineSurfaceVolumeDataset.aggregate(item, aggregator)
 
             # Save
-            _, captions, previews = self.aggregator.compute()
-            self.aggregator.reset()
+            _, _, previews = aggregator.compute()
+            aggregator.reset()
 
-            for caption, preview in zip(captions, previews):
-                name, path = caption.split('|')
-                
-                path = Path(path)
-                path_inner = path.relative_to(path.parent)
-                root = output_dir / path_inner / 'surface_volume'
-
-                root.mkdir(parents=True, exist_ok=True)
-
-                cv2.imwrite(
-                    str(root / f'{z:02}.tif'),
-                    preview,
-                )
+            assert len(previews) == 1, 'iteration is supposed to be layer by layer'
+            for preview in previews:
+                filepath = output_dir / 'surface_volume' / f'{z:02}.tif'
+                filepath.parent.mkdir(parents=True, exist_ok=True)
+                cv2.imwrite(str(filepath), preview)
 
         # Reset
         self.z_start, self.z_end = z_start_original, z_end_original
