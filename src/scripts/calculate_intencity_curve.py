@@ -29,8 +29,8 @@ args = parser.parse_args()
 
 dataset = OnlineSurfaceVolumeDataset(
     pathes=[args.input_dir],
-    z_shift_scale_pathes=None,
-    do_z_shift_scale=False,
+    map_pathes=None,
+    do_scale=False,
     z_start=0,
     z_end=N_SLICES,
     transform=None,

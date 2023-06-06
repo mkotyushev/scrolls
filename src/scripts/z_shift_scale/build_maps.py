@@ -55,8 +55,8 @@ def build_maps(
         # Dataset with all slices, patchification and no overlap
         dataset = OnlineSurfaceVolumeDataset(
             pathes=[path],
-            z_shift_scale_pathes=None,
-            do_z_shift_scale=False,
+            map_pathes=None,
+            do_scale=False,
             z_start=0,
             z_end=N_SLICES,
             transform=None,
@@ -71,8 +71,8 @@ def build_maps(
     # Dataset with partial slices, patchification and overlap
     dataset = OnlineSurfaceVolumeDataset(
         pathes=[path],
-        z_shift_scale_pathes=None,
-        do_z_shift_scale=False,
+        map_pathes=None,
+        do_scale=False,
         z_start=z_start,
         z_end=z_end,
         transform=None,

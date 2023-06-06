@@ -345,8 +345,8 @@ class OnlineSurfaceVolumeDataset:
         transform=None, 
         patch_size: int | Tuple[int, int] = 256, 
         patch_step: None | int | Tuple[int, int] = 128,
-        do_z_shift_scale: bool = True,
-        z_shift_scale_pathes: Optional[List[str]] = None,
+        do_scale: bool = True,
+        map_pathes: Optional[List[str]] = None,
     ):
         self.pathes = pathes
         self.z_start = z_start
@@ -357,11 +357,11 @@ class OnlineSurfaceVolumeDataset:
             patch_step = patch_size
         self.patch_size = to_2tuple(patch_size)
         self.patch_step = to_2tuple(patch_step)
-        self.do_z_shift_scale = do_z_shift_scale
+        self.do_scale = do_scale
 
-        if z_shift_scale_pathes is None:
-            z_shift_scale_pathes = pathes
-        self.z_shift_scale_pathes = z_shift_scale_pathes
+        if map_pathes is None:
+            map_pathes = pathes
+        self.map_pathes = map_pathes
 
         self.build_data()
 
@@ -373,8 +373,10 @@ class OnlineSurfaceVolumeDataset:
         self.ink_masks = []
         self.z_shifts = []
         self.z_scales = []
-        for root, z_shift_scale_root in zip(self.pathes, self.z_shift_scale_pathes):
-            root, z_shift_scale_root = Path(root), Path(z_shift_scale_root)
+        self.y_shifts = []
+        self.y_scales = []
+        for root, map_root in zip(self.pathes, self.map_pathes):
+            root, map_root = Path(root), Path(map_root)
             
             # Volume
             volume = []
@@ -415,9 +417,11 @@ class OnlineSurfaceVolumeDataset:
                 )
         
             # Z shift and scale maps
-            if self.do_z_shift_scale:
-                self.z_shifts.append(np.load(str(z_shift_scale_root / 'z_shift.npy')))
-                self.z_scales.append(np.load(str(z_shift_scale_root / 'z_scale.npy')))
+            if self.do_scale:
+                self.z_shifts.append(np.load(str(map_root / 'z_shift.npy')))
+                self.z_scales.append(np.load(str(map_root / 'z_scale.npy')))
+                self.y_shifts.append(np.load(str(map_root / 'y_shift.npy')))
+                self.y_scales.append(np.load(str(map_root / 'y_scale.npy')))
 
         # Build index
         self.shape_patches = []
@@ -465,7 +469,7 @@ class OnlineSurfaceVolumeDataset:
         # but it is handled later in transform
         z_start_input, z_end_input = self.z_start, self.z_end
         z_shift, z_scale = None, None
-        if self.do_z_shift_scale:
+        if self.do_scale:
             z_shift = copy_crop_pad_2d(self.z_shifts[outer_index], self.patch_size, patch_info['bbox'])
             z_scale = copy_crop_pad_2d(self.z_scales[outer_index], self.patch_size, patch_info['bbox'])
             z_start_input, z_end_input = calculate_input_z_range(
@@ -474,6 +478,12 @@ class OnlineSurfaceVolumeDataset:
                 z_shift,
                 z_scale,
             )
+
+            y_shift = copy_crop_pad_2d(self.y_shifts[outer_index], self.patch_size, patch_info['bbox'])
+            y_scale = copy_crop_pad_2d(self.y_scales[outer_index], self.patch_size, patch_info['bbox'])
+            mask = y_scale == 0.0
+            y_scale = np.where(mask, 1.0, y_scale)
+            y_shift = np.where(mask, 0.0, y_shift)
 
         image = np.full(
             (*self.patch_size, z_end_input - z_start_input), 
@@ -490,8 +500,8 @@ class OnlineSurfaceVolumeDataset:
             ).numpy()
             image[..., i][:slice_.shape[0], :slice_.shape[1]] = slice_
 
-        # Apply z shift and scale
-        if self.do_z_shift_scale:
+        if self.do_scale:
+            # Apply z shift and scale
             z_shift_scale_transform = build_z_shift_scale_transform(
                 image.shape, 
                 z_start_input, 
@@ -505,6 +515,9 @@ class OnlineSurfaceVolumeDataset:
                 self.z_start,
                 self.z_end,
             )
+            
+            # Apply y shift and scale maps
+            volume_transformed = (volume_transformed - y_shift) / y_scale
         
         output = {
             'image': image,  # volume, (H, W, D)
