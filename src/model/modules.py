@@ -696,6 +696,8 @@ class SegmentationModule(BaseModule):
                     ),
                     input_std=sum(IMAGENET_DEFAULT_STD) / 3,
                     input_mean=sum(IMAGENET_DEFAULT_MEAN) / 3,
+                    fill_value=0.0,
+                    overlap_avg_weight_mode='spline',
                 ),
             }
         )

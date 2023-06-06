@@ -2,11 +2,11 @@ import contextlib
 import logging
 import math
 import os
-from pathlib import Path
 import string
 import sys
 import cv2
 import numpy as np
+import scipy
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -24,6 +24,7 @@ from patchify import unpatchify, NonUniformStepSizeError
 from torchvision.utils import make_grid
 from scipy import interpolate, optimize
 from tqdm import tqdm
+from pathlib import Path
 
 from src.data.constants import N_SLICES, MAX_PIXEL_VALUE
 from src.model.swin_transformer_v2_3d import nhwdc_to, Format as Format3d
@@ -239,15 +240,41 @@ def get_feature_channels(model, input_shape, output_format='NHWC'):
     return result
 
 
-def _unpatchify2d_avg(  # pylint: disable=too-many-locals
-    patches: np.ndarray, imsize: Tuple[int, int]
-) -> np.ndarray:
+# https://github.com/bnsreenu/python_for_microscopists/blob/master/
+# 229_smooth_predictions_by_blending_patches/smooth_tiled_predictions.py
+def _spline_window(window_size, power=2):
+    """
+    Squared spline (power=2) window function:
+    https://www.wolframalpha.com/input/?i=y%3Dx**2,+y%3D-(x-2)**2+%2B2,+y%3D(x-4)**2,+from+y+%3D+0+to+2
+    """
+    intersection = int(window_size / 4)
+    wind_outer = (abs(2*(scipy.signal.triang(window_size))) ** power)/2
+    wind_outer[intersection:-intersection] = 0
 
+    wind_inner = 1 - (abs(2*(scipy.signal.triang(window_size) - 1)) ** power)/2
+    wind_inner[:intersection] = 0
+    wind_inner[-intersection:] = 0
+
+    wind = wind_inner + wind_outer
+    wind = wind / np.average(wind)
+    return wind
+
+
+def _spline_window_2d(h, w, power=2):
+    h_wind = _spline_window(h, power)
+    w_wind = _spline_window(w, power)
+    return h_wind[:, None] * w_wind[None, :]
+
+
+def _unpatchify2d_avg(  # pylint: disable=too-many-locals
+    patches: np.ndarray, imsize: Tuple[int, int], weight_mode='uniform',
+) -> np.ndarray:
     assert len(patches.shape) == 4
+    assert weight_mode in ['uniform', 'spline']
 
     i_h, i_w = imsize
-    image = np.zeros(imsize, dtype=np.float16)
-    counts = np.zeros(imsize, dtype=np.int32)
+    image = np.zeros(imsize, dtype=np.float32)
+    weights = np.zeros(imsize, dtype=np.float32)
 
     n_h, n_w, p_h, p_w = patches.shape
 
@@ -263,24 +290,36 @@ def _unpatchify2d_avg(  # pylint: disable=too-many-locals
     s_w = int(s_w)
     s_h = int(s_h)
 
+    weight = 1  # uniform
+    if weight_mode == 'spline':
+        weight = _spline_window_2d(p_h, p_w, power=2)
+
     # For each patch, add it to the image at the right location
     for i in range(n_h):
         for j in range(n_w):
-            image[i * s_h : i * s_h + p_h, j * s_w : j * s_w + p_w] += patches[i, j]
-            counts[i * s_h : i * s_h + p_h, j * s_w : j * s_w + p_w] += 1
+            image[i * s_h : i * s_h + p_h, j * s_w : j * s_w + p_w] += (patches[i, j] * weight)
+            weights[i * s_h : i * s_h + p_h, j * s_w : j * s_w + p_w] += weight
 
     # Average
-    counts[counts == 0] = 1
-    image /= counts
+    weights = np.where(np.isclose(weights, 0.0), 1.0, weights)
+    image /= weights
 
     image = image.astype(patches.dtype)
 
-    return image, counts
+    return image, weights
 
 
 class PredictionTargetPreviewAgg(nn.Module):
     """Aggregate prediction and target patches to images with downscaling."""
-    def __init__(self, preview_downscale: Optional[int] = 4, metrics=None, input_std=1, input_mean=0, fill_value=0):
+    def __init__(
+        self, 
+        preview_downscale: Optional[int] = 4, 
+        metrics=None, 
+        input_std=1, 
+        input_mean=0, 
+        fill_value=0,
+        overlap_avg_weight_mode='uniform',
+    ):
         super().__init__()
         self.preview_downscale = preview_downscale
         self.metrics = metrics
@@ -290,6 +329,7 @@ class PredictionTargetPreviewAgg(nn.Module):
         self.input_std = input_std
         self.input_mean = input_mean
         self.fill_value = fill_value
+        self.overlap_avg_weight_mode = overlap_avg_weight_mode
 
     def reset(self):
         # Note: metrics are reset in compute()
@@ -367,7 +407,8 @@ class PredictionTargetPreviewAgg(nn.Module):
                 # Average overlapping patches
                 self.previews[name], counts = _unpatchify2d_avg(
                     self.previews[name], 
-                    shape_original
+                    shape_original,
+                    weight_mode=self.overlap_avg_weight_mode,
                 )
                 self.previews[name.replace('probas', 'counts')] = counts.astype(np.uint8)
             elif name.startswith('counts'):
