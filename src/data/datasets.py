@@ -336,7 +336,7 @@ class InMemorySurfaceVolumeDataset:
         return {k: v for k, v in output.items() if k in output_keys}
 
 
-class SurfaceVolumeDatasetTest:
+class OnlineSurfaceVolumeDataset:
     def __init__(
         self, 
         pathes, 
@@ -601,7 +601,7 @@ class SurfaceVolumeDatasetTest:
         # Merge all except volume
         for i in range(len(self)):
             item = self.get_all_except_volume(i)
-            SurfaceVolumeDatasetTest.aggregate(item, aggregator)
+            OnlineSurfaceVolumeDataset.aggregate(item, aggregator)
         _, captions, previews = self.aggregator.compute()
         self.aggregator.reset()
 
@@ -633,7 +633,7 @@ class SurfaceVolumeDatasetTest:
                 item = self.get_volume(i)
                 assert item['image'].shape[2] == 1
                 item['image'] = item['image'][..., 0]
-                SurfaceVolumeDatasetTest.aggregate(item, aggregator)
+                OnlineSurfaceVolumeDataset.aggregate(item, aggregator)
 
             # Save
             _, captions, previews = self.aggregator.compute()

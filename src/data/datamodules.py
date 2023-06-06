@@ -11,7 +11,7 @@ from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from src.data.constants import MAX_PIXEL_VALUE
 from src.data.datasets import (
     InMemorySurfaceVolumeDataset,
-    SurfaceVolumeDatasetTest, 
+    OnlineSurfaceVolumeDataset, 
 )
 from src.data.transforms import (
     CopyPastePositive,
@@ -313,7 +313,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
             )
 
         if self.test_dataset is None and self.hparams.surface_volume_dirs_test is not None:
-            self.test_dataset = SurfaceVolumeDatasetTest(
+            self.test_dataset = OnlineSurfaceVolumeDataset(
                 pathes=self.hparams.surface_volume_dirs_test,
                 z_shift_scale_pathes=self.hparams.z_shift_scale_pathes_test,
                 z_start=self.hparams.z_start,

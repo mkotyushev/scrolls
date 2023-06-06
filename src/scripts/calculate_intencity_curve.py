@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 from src.data.constants import N_SLICES, Z_TARGET_FIT_END_INDEX, Z_TARGET_FIT_START_INDEX
-from src.data.datasets import SurfaceVolumeDatasetTest
+from src.data.datasets import OnlineSurfaceVolumeDataset
 from src.utils.utils import get_z_dataset_mean_per_z
 
 
@@ -27,7 +27,7 @@ parser.add_argument('--normalize', action='store_true')
 args = parser.parse_args()
 
 
-dataset = SurfaceVolumeDatasetTest(
+dataset = OnlineSurfaceVolumeDataset(
     pathes=[args.input_dir],
     z_shift_scale_pathes=None,
     do_z_shift_scale=False,

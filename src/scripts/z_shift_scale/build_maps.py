@@ -17,7 +17,7 @@ from src.data.constants import (
     VOLUME_MEAN_PER_Z_TARGET,
     VOLUME_MEAN_PER_Z_TARGET_NORMALIZED,
 )
-from src.data.datasets import SurfaceVolumeDatasetTest
+from src.data.datasets import OnlineSurfaceVolumeDataset
 from src.utils.utils import (
     calculate_minmax_mean_per_z,
     get_z_volume_mean_per_z, 
@@ -53,7 +53,7 @@ def build_maps(
     subtract, divide = 0, 1
     if normalize:
         # Dataset with all slices, patchification and no overlap
-        dataset = SurfaceVolumeDatasetTest(
+        dataset = OnlineSurfaceVolumeDataset(
             pathes=[path],
             z_shift_scale_pathes=None,
             do_z_shift_scale=False,
@@ -69,7 +69,7 @@ def build_maps(
         logger.info(f'subtract: {subtract}, divide: {divide}')
     
     # Dataset with partial slices, patchification and overlap
-    dataset = SurfaceVolumeDatasetTest(
+    dataset = OnlineSurfaceVolumeDataset(
         pathes=[path],
         z_shift_scale_pathes=None,
         do_z_shift_scale=False,
