@@ -12,7 +12,7 @@ from scipy import LowLevelCallable
 from src.data.constants import N_SLICES
 from src.utils.utils import read_data
 
-# Usage: python src/scripts/z_shift_scale/scale.py --input_dir /workspace/data/fragments/train/1 --output_dir /workspace/data/fragments_z_shift_scale/train/1 --map_path maps/1/model_independent_y_scale/patch_size_512/ --z_start 27 --z_end 36
+# Usage: python src/scripts/z_shift_scale/scale.py --input_dir /workspace/data/fragments/train/1 --output_dir /workspace/data/fragments_z_shift_scale/train/1 --map_path maps/1/model_independent_y_scale/patch_size_512/overlap_divider_4 --z_start 27 --z_end 36
 
 logger = logging.getLogger(__name__)
 LOGLEVEL = os.environ.get('LOGLEVEL', 'INFO').upper()

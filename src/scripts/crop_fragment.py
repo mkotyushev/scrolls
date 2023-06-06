@@ -6,7 +6,7 @@
 # Use pathlib.Path to work with paths not os.path.
 # Use argparse to work with command line arguments.
 #
-# Usage: python src/scripts/crop_fragment.py /workspace/data/fragments/train/2 /workspace/data/fragments_cropped/train/
+# Usage: python src/scripts/crop_fragment.py /workspace/data/fragments/train/2 /workspace/data/fragments_cropped/train/ mass
 
 import argparse
 import cv2
