@@ -479,6 +479,10 @@ class OnlineSurfaceVolumeDataset:
         if self.do_scale:
             z_shift = copy_crop_pad_2d(self.z_shifts[outer_index], self.patch_size, patch_info['bbox'])
             z_scale = copy_crop_pad_2d(self.z_scales[outer_index], self.patch_size, patch_info['bbox'])
+            mask = np.isclose(z_scale, 0.0)
+            z_shift = np.where(mask, z_shift[~mask].mean(), z_shift)
+            z_scale = np.where(mask, z_scale[~mask].mean(), z_scale)
+
             z_start_input, z_end_input = calculate_input_z_range(
                 self.z_start, 
                 self.z_end, 
@@ -488,9 +492,9 @@ class OnlineSurfaceVolumeDataset:
 
             y_shift = copy_crop_pad_2d(self.y_shifts[outer_index], self.patch_size, patch_info['bbox'])
             y_scale = copy_crop_pad_2d(self.y_scales[outer_index], self.patch_size, patch_info['bbox'])
-            mask = y_scale == 0.0
-            y_scale = np.where(mask, 1.0, y_scale)
-            y_shift = np.where(mask, 0.0, y_shift)
+            mask = np.isclose(y_scale, 0.0)
+            y_shift = np.where(mask, y_shift[~mask].mean(), y_shift)
+            y_scale = np.where(mask, y_scale[~mask].mean(), y_scale)
 
         image = np.full(
             (*self.patch_size, z_end_input - z_start_input), 
