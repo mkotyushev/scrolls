@@ -611,15 +611,25 @@ def fit_x_shift_scale(x, y, x_target, y_target, model='no_y_scale'):
         Same as model 1 but additionally scale the y as well via
         exponential of minus independent total absorbance (absorbance * traveled length) 
         parameter multiplied by the change of x scale.
+    Model 'beer_lambert_law_independent_y_shift':
+        Same as model 1 but additionally scale the y as well via
+        exponential of minus independent total absorbance (absorbance * traveled length) 
+        parameter multiplied by the change of x scale.
     """
-    assert model in ['no_y', 'independent_y_scale', 'independent_y_shift_scale', 'beer_lambert_law']
+    assert model in [
+        'no_y', 
+        'independent_y_scale', 
+        'independent_y_shift_scale', 
+        'beer_lambert_law',
+        'beer_lambert_law_independent_y_shift',
+    ]
     
     # Not sure if least_squares is scale invariant, so scale variables closer to 0
     X_SHIFT_MULTIPLIER = 30
     X_SCALE_MULTIPLIER = 1
-    Y_SHIFT_MULTIPLIER = 2e4
+    Y_SHIFT_MULTIPLIER = 1e4
     Y_SCALE_MULTIPLIER = 1
-    ABSORBANCE_MULTIPLIER = 2
+    ABSORBANCE_MULTIPLIER = 1e3
 
     if model == 'no_y':
         def fun(p):
@@ -697,6 +707,26 @@ def fit_x_shift_scale(x, y, x_target, y_target, model='no_y_scale'):
         total_absorbance *= ABSORBANCE_MULTIPLIER
         y_scale = np.exp(-total_absorbance * (x_scale - 1))
         y_shift = 0
+    elif model == 'beer_lambert_law_independent_y_shift':
+        def fun(p):
+            x_shift, x_scale, total_absorbance, y_shift = p
+            x_shift *= X_SHIFT_MULTIPLIER
+            x_scale *= X_SCALE_MULTIPLIER
+            total_absorbance *= ABSORBANCE_MULTIPLIER
+            x_scaled_shifted = x * x_scale + x_shift
+            f = interpolate.interp1d(x_scaled_shifted, y, bounds_error=False, fill_value='extrapolate')
+            mult = np.exp(-total_absorbance * (x_scale - 1))
+            return f(x_target) * mult + y_shift - y_target
+        x_shift, x_scale, total_absorbance, y_shift = optimize.least_squares(
+            fun=fun, 
+            x0=[0, 1, 0, 0],
+            bounds=([-1, 0.1, 0.0, -1], [1, 10, 1, 1]),
+        ).x
+        x_shift *= X_SHIFT_MULTIPLIER
+        x_scale *= X_SCALE_MULTIPLIER
+        total_absorbance *= ABSORBANCE_MULTIPLIER
+        y_shift *= Y_SHIFT_MULTIPLIER
+        y_scale = np.exp(-total_absorbance * (x_scale - 1))
     
     return x_shift, x_scale, y_shift, y_scale
 

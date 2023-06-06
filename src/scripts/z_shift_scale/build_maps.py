@@ -196,7 +196,13 @@ def main():
     parser.add_argument(
         '--model', 
         type=str, 
-        choices=['no_y', 'independent_y_scale', 'independent_y_shift_scale', 'beer_lambert_law'], 
+        choices=[
+            'no_y', 
+            'independent_y_scale', 
+            'independent_y_shift_scale', 
+            'beer_lambert_law',
+            'beer_lambert_law_independent_y_shift',
+        ], 
         default='no_y'
     )
     parser.add_argument('--normalize', action='store_true')
