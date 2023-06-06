@@ -82,6 +82,60 @@ def crop_image(in_path, in_fragment_root, out_fragments_root, center=None):
         np.save(out_path, img_crop)
 
 
+def crop_image3(in_path, in_fragment_root, out_fragments_root):
+    """Crop image from in_path and save it to out_path / {i}"""
+    if in_path.suffix in ['.png', '.tif']:
+        img = cv2.imread(str(in_path), cv2.IMREAD_UNCHANGED)
+    elif in_path.suffix == '.npy':
+        img = np.load(in_path)
+    else:
+        raise ValueError(f'Unknown file type: {in_path.suffix}')
+    
+    h_center, w_center = img.shape[0] // 2, img.shape[1] // 2
+
+    # Crop 1 is upper half of the image
+    img_crop = img[:h_center, :]
+    out_path = (
+        out_fragments_root / 
+        f'{in_fragment_root.stem}a' / 
+        Path(in_path).relative_to(in_fragment_root)
+    )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    if in_path.suffix in ['.png', '.tif']:
+        cv2.imwrite(str(out_path), img_crop)
+    elif in_path.suffix == '.npy':
+        np.save(out_path, img_crop)
+
+    # Crop 2 is bottom left quarter of the image
+    img_crop = img[h_center:, :w_center]
+    out_path = (
+        out_fragments_root / 
+        f'{in_fragment_root.stem}b' / 
+        Path(in_path).relative_to(in_fragment_root)
+    )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Crop 3 is bottom right quarter of the image
+    if in_path.suffix in ['.png', '.tif']:
+        cv2.imwrite(str(out_path), img_crop)
+    elif in_path.suffix == '.npy':
+        np.save(out_path, img_crop)
+
+    img_crop = img[h_center:, w_center:]
+    out_path = (
+        out_fragments_root / 
+        f'{in_fragment_root.stem}c' / 
+        Path(in_path).relative_to(in_fragment_root)
+    )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if in_path.suffix in ['.png', '.tif']:
+        cv2.imwrite(str(out_path), img_crop)
+    elif in_path.suffix == '.npy':
+        np.save(out_path, img_crop)
+
+
 def get_scroll_mask_path(img_path):
     if img_path.suffix in ['.png', '.npy']:
         return img_path.parent / 'mask.png'
@@ -92,7 +146,7 @@ def get_scroll_mask_path(img_path):
 parser = argparse.ArgumentParser(description='Crop fragment')
 parser.add_argument('in_dir', type=Path, help='input directory (root of single fragment)')
 parser.add_argument('out_dir', type=Path, help='output directory (root of fragments)')
-parser.add_argument('mode', type=str, choices=['geom', 'mass'], help='crop center is geom or mass center')
+parser.add_argument('mode', type=str, choices=['geom', 'mass', '3'], help='crop center is geom or mass center or custom 3 parts')
 args = parser.parse_args()
 
 for path in tqdm(args.in_dir.glob('**/*')):
@@ -102,12 +156,15 @@ for path in tqdm(args.in_dir.glob('**/*')):
     else:
         if path.suffix in ['.png', '.tif', '.npy']:
             path_out = args.out_dir / path.relative_to(args.in_dir)
-            center = None
-            if args.mode == 'mass':
-                scroll_mask = cv2.imread(str(get_scroll_mask_path(path)), cv2.IMREAD_GRAYSCALE) > 0
-                mass_h, mass_w = np.where(scroll_mask)
-                center = np.floor(mass_h.mean()).astype(np.int32), np.floor(mass_w.mean()).astype(np.int32)
-            crop_image(path, args.in_dir, args.out_dir, center=center)
+            if args.mode in ['geom', 'mass']:
+                center = None
+                if args.mode == 'mass':
+                    scroll_mask = cv2.imread(str(get_scroll_mask_path(path)), cv2.IMREAD_GRAYSCALE) > 0
+                    mass_h, mass_w = np.where(scroll_mask)
+                    center = np.floor(mass_h.mean()).astype(np.int32), np.floor(mass_w.mean()).astype(np.int32)
+                crop_image(path, args.in_dir, args.out_dir, center=center)
+            elif args.mode == '3':
+                crop_image3(path, args.in_dir, args.out_dir)
         else:
             path_out = args.out_dir / path.relative_to(args.in_dir)
             path_out.parent.mkdir(parents=True, exist_ok=True)
