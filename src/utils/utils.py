@@ -310,7 +310,7 @@ class PredictionTargetPreviewAgg(nn.Module):
         # To CPU & types
         for name in arrays:
             if isinstance(arrays[name], torch.Tensor):
-                arrays[name] = input.cpu().numpy()
+                arrays[name] = arrays[name].cpu().numpy()
             
             if name == 'input':
                 arrays[name] = ((arrays[name] * self.input_std + self.input_mean) * 255).astype(np.uint8)
@@ -324,9 +324,9 @@ class PredictionTargetPreviewAgg(nn.Module):
 
         if isinstance(indices, torch.Tensor):
             indices = indices.cpu().numpy()
-        if isinstance(indices, torch.Tensor):
+        if isinstance(shape_patches, torch.Tensor):
             shape_patches = shape_patches.cpu().numpy()
-        if isinstance(indices, torch.Tensor):
+        if isinstance(shape_before_padding, torch.Tensor):
             shape_before_padding = shape_before_padding.cpu().numpy()
 
         indices, shape_patches, shape_before_padding = \
@@ -337,7 +337,8 @@ class PredictionTargetPreviewAgg(nn.Module):
         # Place patches on the preview images
         B = arrays[list(arrays.keys())[0]].shape[0]
         for i in range(B):
-            path = str(pathes[i].relative_to(pathes[i].parent.parent))
+            path = Path(pathes[i])
+            path = str(path.relative_to(path.parent.parent))
             shape = [
                 *shape_patches[i].tolist(),
                 *patch_size,
@@ -351,25 +352,25 @@ class PredictionTargetPreviewAgg(nn.Module):
                 key = f'{name}|{path}'
                 if key not in self.previews:
                     self.previews[key] = np.full(shape, fill_value=self.fill_value, dtype=arrays[name].dtype)
-                    if name.startswith('proba_'):
+                    if name.startswith('probas'):
                         # Needed to calculate average from sum
                         # hack to not change dict size later, actually computed in compute()
-                        self.previews[f'counts_{path}'] = None
-                self.previews[key][patch_index_h, patch_index_w] = value
+                        self.previews[f'counts|{path}'] = None
+                self.previews[key][patch_index_h, patch_index_w] = value[i]
     
     def compute(self):
         # Unpatchify
         for name in self.previews:
             path = name.split('|')[-1]
             shape_original = self.shapes[path]
-            if name.startswith('proba_'):
+            if name.startswith('probas'):
                 # Average overlapping patches
                 self.previews[name], counts = _unpatchify2d_avg(
                     self.previews[name], 
                     shape_original
                 )
-                self.previews[name.replace('proba', 'counts')] = counts.astype(np.uint8)
-            elif name.startswith('counts_'):
+                self.previews[name.replace('probas', 'counts')] = counts.astype(np.uint8)
+            elif name.startswith('counts'):
                 # Do nothing
                 pass
             else:
@@ -381,8 +382,8 @@ class PredictionTargetPreviewAgg(nn.Module):
 
         # Zero probas out where mask is zero
         for name in self.previews:
-            if name.startswith('proba_'):
-                mask = self.previews[name.replace('proba', 'mask')] == 0
+            if name.startswith('probas'):
+                mask = self.previews[name.replace('probas', 'mask')] == 0
                 self.previews[name][mask] = 0
 
         # Crop to shape before padding
@@ -399,11 +400,11 @@ class PredictionTargetPreviewAgg(nn.Module):
         if self.metrics is not None:
             preds, targets = [], []
             for name in self.previews:
-                if name.startswith('proba_'):
+                if name.startswith('probas'):
                     path = name.split('|')[-1]
-                    mask = self.previews[f'mask_{path}'] > 0
+                    mask = self.previews[f'mask|{path}'] > 0
                     pred = self.previews[name][mask].flatten()
-                    target = self.previews[f'target_{path}'][mask].flatten()
+                    target = self.previews[f'target|{path}'][mask].flatten()
 
                     preds.append(pred)
                     targets.append(target)
@@ -883,7 +884,7 @@ class PredictionWriter(BasePredictionWriter):
         
         ids, probas = [], []
         for caption, preview in zip(captions, previews):
-            if caption.startswith('proba_'):
+            if caption.startswith('probas'):
                 ids.append(caption.split('/')[-1])
                 probas.append(preview)
 
