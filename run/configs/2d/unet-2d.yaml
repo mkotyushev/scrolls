@@ -12,8 +12,8 @@ trainer:
     - class_path: lightning.pytorch.callbacks.LearningRateMonitor
       init_args:
         logging_interval: step
-    - class_path: src.utils.utils.ModelCheckpointNoSave
-    # - class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    # - class_path: src.utils.utils.ModelCheckpointNoSave
+    - class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
         save_top_k: 1
         monitor: v_f05
@@ -107,7 +107,7 @@ model:
       frequency: 1
     finetuning: null
     lr_layer_decay: 1.0
-    log_norm_verbose: true
+    log_norm_verbose: false
     n_bootstrap: 0
     skip_nan: false
     prog_bar_names: 
