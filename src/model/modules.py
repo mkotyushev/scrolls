@@ -787,11 +787,14 @@ class SegmentationModule(BaseModule):
         for metric in self.metrics[f'{span_prefix}_metrics'].values():
             if isinstance(metric, PredictionTargetPreviewAgg) and batch['indices'] is not None:
                 metric.update(
-                    batch['image'][..., batch['image'].shape[-1] // 2],
-                    y_pred, 
-                    target=y, 
-                    mask=batch['mask_0'],
+                    arrays={
+                        'input': batch['image'][..., batch['image'].shape[-1] // 2],
+                        'probas': y_pred,
+                        'target': y,
+                        'mask': batch['mask_0'],
+                    },
                     pathes=batch['path'],
+                    patch_size=y_pred.shape[-2:],
                     indices=batch['indices'], 
                     shape_patches=batch['shape_patches'],
                     shape_original=batch['shape_original'],

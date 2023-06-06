@@ -298,59 +298,56 @@ class PredictionTargetPreviewAgg(nn.Module):
 
     def update(
         self, 
-        input: torch.Tensor,
-        probas: torch.Tensor, 
-        mask: torch.LongTensor,
-        indices: torch.LongTensor, 
+        arrays: Dict[str, torch.Tensor | np.ndarray],
         pathes: list[str], 
-        shape_patches: torch.LongTensor,
-        shape_original: torch.LongTensor,
+        patch_size: torch.LongTensor | np.ndarray,
+        indices: torch.LongTensor | np.ndarray, 
+        shape_patches: torch.LongTensor | np.ndarray,
+        shape_original: torch.LongTensor | np.ndarray,
         shape_before_padding: torch.LongTensor,
-        target: Optional[torch.Tensor] = None, 
     ):
         # To CPU & types
-        input, probas, mask, indices, shape_patches, shape_before_padding = \
-            ((input.cpu().numpy() * self.input_std + self.input_mean) * 255).astype(np.uint8), \
-            probas.cpu().numpy().astype(np.float32), \
-            mask.cpu().numpy().astype(np.uint8), \
+        for name in arrays:
+            if isinstance(arrays[name], torch.Tensor):
+                arrays[name] = input.cpu().numpy()
+            
+            if name == 'input':
+                arrays[name] = ((arrays[name] * self.input_std + self.input_mean) * 255).astype(np.uint8)
+            elif name == 'probas':
+                arrays[name] = arrays[name].astype(np.float32)
+            elif name == ['mask', 'target']:
+                arrays[name] = arrays[name].astype(np.uint8)
+            else:
+                # Do not convert type
+                pass
+
+        indices, shape_patches, shape_before_padding = \
             indices.cpu().long().numpy(), \
             shape_patches.cpu().long().numpy(), \
             shape_before_padding.cpu().long().numpy()
     
-        if target is not None:
-            target = target.cpu().numpy().astype(np.uint8)
-
-        patch_size = probas.shape[-2:]
-
         # Place patches on the preview images
-        for i in range(probas.shape[0]):
+        B = arrays[list(arrays.keys())[0]]
+        for i in range(B):
             path = '/'.join(pathes[i].split('/')[-2:])
-            if f'proba_{path}' not in self.previews:
-                shape = [
-                    *shape_patches[i].tolist(),
-                    *patch_size,
-                ]
-                self.previews[f'input_{path}'] = np.zeros(shape, dtype=np.uint8)
-                self.previews[f'proba_{path}'] = np.zeros(shape, dtype=np.float32)
-                self.previews[f'target_{path}'] = np.zeros(shape, dtype=np.uint8)
-                self.previews[f'mask_{path}'] = np.zeros(shape, dtype=np.uint8)
-                # hack to not change dict size later, actually computed in compute()
-                self.previews[f'counts_{path}'] = None
-                self.shapes[path] = shape_original[i].tolist()[:2]
-                self.shapes_before_padding[path] = shape_before_padding[i].tolist()[:2]
+            shape = [
+                *shape_patches[i].tolist(),
+                *patch_size,
+            ]
 
+            self.shapes[path] = shape_original[i].tolist()[:2]
+            self.shapes_before_padding[path] = shape_before_padding[i].tolist()[:2]
             patch_index_w, patch_index_h = indices[i].tolist()
 
-            self.previews[f'input_{path}'][patch_index_h, patch_index_w] = \
-                input[i]
-            self.previews[f'proba_{path}'][patch_index_h, patch_index_w] = \
-                probas[i]
-            self.previews[f'mask_{path}'][patch_index_h, patch_index_w] = \
-                mask[i]
-        
-            if target is not None:
-                self.previews[f'target_{path}'][patch_index_h, patch_index_w] = \
-                    target[i]
+            for name, value in arrays.items():
+                key = f'{name}_{path}'
+                if key not in self.previews:
+                    self.previews[key] = np.zeros(shape, dtype=arrays[name].dtype)
+                    if name.startswith('proba_'):
+                        # Needed to calculate average from sum
+                        # hack to not change dict size later, actually computed in compute()
+                        self.previews[f'counts_{path}'] = None
+                self.previews[key][patch_index_h, patch_index_w] = value
     
     def compute(self):
         # Unpatchify
@@ -855,11 +852,13 @@ class PredictionWriter(BasePredictionWriter):
     ):
         _, y_pred = pl_module.extract_targets_and_probas_for_metric(prediction, batch)
         self.aggregator.update(
-            batch['image'][..., batch['image'].shape[-1] // 2],
-            y_pred, 
-            target=None, 
-            mask=batch['mask_0'],
+            arrays={
+                'input': batch['image'][..., batch['image'].shape[-1] // 2],
+                'probas': y_pred,
+                'mask': batch['mask_0'],
+            },
             pathes=batch['path'],
+            patch_size=y_pred.shape[-2:],
             indices=batch['indices'], 
             shape_patches=batch['shape_patches'],
             shape_original=batch['shape_original'],
