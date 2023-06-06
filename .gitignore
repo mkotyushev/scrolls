@@ -8,4 +8,5 @@ scrolls/
 *.log
 weights/
 software/
+maps/
 *.zip
