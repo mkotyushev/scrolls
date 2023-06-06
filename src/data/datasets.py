@@ -352,6 +352,7 @@ class OnlineSurfaceVolumeDataset:
         patch_step: None | int | Tuple[int, int] = 128,
         do_scale: bool = True,
         map_pathes: Optional[List[str]] = None,
+        skip_empty_scroll_mask: bool = True,
     ):
         self.pathes = pathes
         self.z_start = z_start
@@ -367,6 +368,7 @@ class OnlineSurfaceVolumeDataset:
         if map_pathes is None:
             map_pathes = pathes
         self.map_pathes = map_pathes
+        self.skip_empty_scroll_mask = skip_empty_scroll_mask
 
         self.build_data()
 
@@ -442,7 +444,7 @@ class OnlineSurfaceVolumeDataset:
                 for k, w_start in enumerate(range(0, scroll_mask.shape[1], self.patch_step[1])):
                     n_w_starts += 1
                     w_end = min(w_start + self.patch_size[1], scroll_mask.shape[1])
-                    if scroll_mask[h_start:h_end, w_start:w_end].sum() > 0:
+                    if not self.skip_empty_scroll_mask or scroll_mask[h_start:h_end, w_start:w_end].sum() > 0:
                         patch_info = {
                             'outer_index': i,
                             'indices': (k, j),  # Note: (w, h)
@@ -522,7 +524,7 @@ class OnlineSurfaceVolumeDataset:
             )
             
             # Apply y shift and scale maps
-            image = (image - y_shift[..., None]) / y_scale[..., None]
+            image = ((image - y_shift[..., None]) / y_scale[..., None]).astype(np.uint16)
         
         output = {
             'image': image,  # volume, (H, W, D)
@@ -661,7 +663,7 @@ class OnlineSurfaceVolumeDataset:
             # Merge all layer
             for i in tqdm(range(len(self))):
                 item = {**self.get_volume(i), **self.get_aux(i)}
-                assert item['image'].shape[2] == 1
+                assert item['image'].shape[2] == 1 and item['image'].ndim == 3
                 item['image'] = item['image'][..., 0]
                 OnlineSurfaceVolumeDataset.aggregate(item, aggregator)
 

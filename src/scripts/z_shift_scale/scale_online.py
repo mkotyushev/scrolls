@@ -68,6 +68,7 @@ def main():
         transform=None,
         patch_size=args.patch_size,
         patch_step=args.patch_size,
+        skip_empty_scroll_mask=False,
     )
 
     # Dump

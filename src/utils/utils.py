@@ -280,7 +280,7 @@ def _unpatchify2d_avg(  # pylint: disable=too-many-locals
 
 class PredictionTargetPreviewAgg(nn.Module):
     """Aggregate prediction and target patches to images with downscaling."""
-    def __init__(self, preview_downscale: Optional[int] = 4, metrics=None, input_std=1, input_mean=0):
+    def __init__(self, preview_downscale: Optional[int] = 4, metrics=None, input_std=1, input_mean=0, fill_value=0):
         super().__init__()
         self.preview_downscale = preview_downscale
         self.metrics = metrics
@@ -289,6 +289,7 @@ class PredictionTargetPreviewAgg(nn.Module):
         self.shapes_before_padding = {}
         self.input_std = input_std
         self.input_mean = input_mean
+        self.fill_value = fill_value
 
     def reset(self):
         # Note: metrics are reset in compute()
@@ -349,7 +350,7 @@ class PredictionTargetPreviewAgg(nn.Module):
             for name, value in arrays.items():
                 key = f'{name}|{path}'
                 if key not in self.previews:
-                    self.previews[key] = np.zeros(shape, dtype=arrays[name].dtype)
+                    self.previews[key] = np.full(shape, fill_value=self.fill_value, dtype=arrays[name].dtype)
                     if name.startswith('proba_'):
                         # Needed to calculate average from sum
                         # hack to not change dict size later, actually computed in compute()
