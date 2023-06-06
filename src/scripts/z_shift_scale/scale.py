@@ -72,14 +72,17 @@ def calculate_input_z_range(z_start, z_end, z_shift, z_scale):
     # input_coordinates[2] = (z_start + output_coordinates[2] - shift) / scale - z_start_input;
     z_start_input, z_end_input = 0, N_SLICES
 
-    # Remove outliers
-    mask = np.isclose(z_scale, 0.0)
-    z_scale = np.where(mask, 1.0, z_scale)
-    z_shift = np.where(mask, 0.0, z_shift)
-
     # Get input z range required to calculate output z
-    z_start_input = np.floor(((z_start - z_shift) / z_scale).min() - 1).astype(np.int32)
-    z_end_input = np.ceil(((z_end - z_shift) / z_scale).max() + 1).astype(np.int32)
+    # TODO: check why +-1 & floor / ceil is not enought here
+
+    # Example
+    # LOGLEVEL='error' python src/scripts/z_shift_scale/scale_online.py 
+    # --input_dir /workspace/data/fragments/train/1 
+    # --map_path /workspace/scrolls/maps/1/model_independent_y_scale/patch_size_512/overlap_divider_4/ 
+    # --output_dir /workspace/data/fragments_z_shift_scale_online/train/1 
+    # --patch_size 384 --z_start 35 --z_end 36
+    z_start_input = np.floor(((z_start - z_shift) / z_scale).min() - 2).astype(np.int32)
+    z_end_input = np.ceil(((z_end - z_shift) / z_scale).max() + 2).astype(np.int32)
 
     # Clip input z range
     z_start_input = max(0, z_start_input)
