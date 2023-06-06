@@ -237,6 +237,8 @@ def main():
     y_scale = cv2.resize(y_scale, (original_width, original_height), interpolation=cv2.INTER_LINEAR)
 
     # Save
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    
     np.save(
         args.output_dir / 'z_shift.npy',
         z_shift,
