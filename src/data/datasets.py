@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from patchify import patchify
 from timm.layers import to_2tuple
+from tqdm import tqdm
 
 from src.data.constants import N_SLICES
 from src.scripts.z_shift_scale.scale import (
@@ -15,6 +16,7 @@ from src.scripts.z_shift_scale.scale import (
     calculate_input_z_range
 )
 from src.utils.utils import (
+    PredictionTargetPreviewAgg,
     calculate_pad_width,
     copy_crop_pad_2d,
     pad_divisible_2d
@@ -452,7 +454,7 @@ class SurfaceVolumeDatasetTest:
     def __len__(self):
         return len(self.index_to_patch_info)
 
-    def __getitem__(self, idx):
+    def get_volume(self, idx):
         gc.collect()
         
         patch_info = self.index_to_patch_info[idx]
@@ -503,7 +505,17 @@ class SurfaceVolumeDatasetTest:
                 self.z_start,
                 self.z_end,
             )
+        
+        output = {
+            'image': image,  # volume, (H, W, D)
+        }
 
+        return output
+    
+    def get_all_except_volume(self, idx):
+        patch_info = self.index_to_patch_info[idx]
+        outer_index = patch_info['outer_index']
+        
         # Get masks
         scroll_mask = copy_crop_pad_2d(self.scroll_masks[outer_index], self.patch_size, patch_info['bbox'])
         masks = [scroll_mask]
@@ -525,7 +537,6 @@ class SurfaceVolumeDatasetTest:
         shape_original = np.array([s + p[1] for s, p in zip(shape_before_padding, pad_width)])
         
         output = {
-            'image': image,  # volume, (H, W, D)
             'masks': masks,  # masks, (H, W) each
             'path': path,  # path, 1
             'indices': indices,  # indices, 2
@@ -536,7 +547,111 @@ class SurfaceVolumeDatasetTest:
             'shape_before_padding': shape_before_padding,  # shape_before_padding, 3
         }
 
+        return output
+    
+    @staticmethod
+    def aggregate(item, aggregator: PredictionTargetPreviewAgg):
+        """
+        Merge dataset item to un-patchified fragments:
+        output: dict path ->
+            scroll_mask
+            ir_image
+            ink_mask
+        """
+        arrays = {}
+
+        if 'image' in item:
+            arrays['image'] = item['image'].unsqueeze(0)
+
+        if 'masks' in item:
+            arrays['scroll_mask'] = item['masks'][0].unsqueeze(0)
+            if len(item['masks']) > 1:
+                arrays['ir_image'] = item['masks'][1].unsqueeze(0)
+            if len(item['masks']) > 2:
+                arrays['ink_mask'] = item['masks'][2].unsqueeze(0)
+
+        aggregator.update(
+            arrays=arrays,
+            pathes=[item['path']],
+            patch_size=item['masks'][0].shape[-2:],
+            indices=item['indices'].unsqueeze(0), 
+            shape_patches=item['shape_patches'].unsqueeze(0),
+            shape_original=item['shape_original'].unsqueeze(0),
+            shape_before_padding=item['shape_before_padding'].unsqueeze(0),
+        )
+
+    def __getitem__(self, idx):
+        output = {**self.get_volume(idx), **self.get_all_except_volume()}
+
         if self.transform is not None:
             output = self.transform(**output)
 
         return output
+    
+    def dump(self, output_dir):
+        assert self.transform is None, 'dump is not supported with transform'
+
+        output_dir = Path(output_dir)
+
+        aggregator = PredictionTargetPreviewAgg(
+            preview_downscale=None,
+            metrics=None,
+        )
+
+        # Merge all except volume
+        for i in range(len(self)):
+            item = self.get_all_except_volume(i)
+            SurfaceVolumeDatasetTest.aggregate(item, aggregator)
+        _, captions, previews = self.aggregator.compute()
+        self.aggregator.reset()
+
+        # Save
+        for caption, preview in zip(captions, previews):
+            name, path = caption.split('|')
+            
+            path = Path(path)
+            path_inner = path.relative_to(path.parent)
+            root = output_dir / path_inner
+
+            root.mkdir(parents=True, exist_ok=True)
+
+            cv2.imwrite(
+                str((root / name).withsuffix('.png')),
+                preview,
+            )
+
+        # Merge volume layer by layer
+        z_start_original, z_end_original = self.z_start, self.z_end
+        for z in tqdm(range(z_start_original, z_end_original)):
+            gc.collect()
+
+            self.z_start = z
+            self.z_end = z + 1
+
+            # Merge all layer
+            for i in range(len(self)):
+                item = self.get_volume(i)
+                assert item['image'].shape[2] == 1
+                item['image'] = item['image'][..., 0]
+                SurfaceVolumeDatasetTest.aggregate(item, aggregator)
+
+            # Save
+            _, captions, previews = self.aggregator.compute()
+            self.aggregator.reset()
+
+            for caption, preview in zip(captions, previews):
+                name, path = caption.split('|')
+                
+                path = Path(path)
+                path_inner = path.relative_to(path.parent)
+                root = output_dir / path_inner / 'surface_volume'
+
+                root.mkdir(parents=True, exist_ok=True)
+
+                cv2.imwrite(
+                    str(root / f'{z:02}.tif'),
+                    preview,
+                )
+
+        # Reset
+        self.z_start, self.z_end = z_start_original, z_end_original
