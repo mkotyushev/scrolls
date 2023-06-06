@@ -163,7 +163,7 @@ def main():
     mask = y_scales[0] == 0.0
     y_scales[0] = np.where(mask, 1.0, y_scales[0])
     y_shifts[0] = np.where(mask, 0.0, y_shifts[0])
-    volume_transformed = (volume_transformed - y_shifts[0]) / y_scales[0]
+    volume_transformed = (volume_transformed - y_shifts[0][..., None]) / y_scales[0][..., None]
 
     # Save transformed volume
     for z in range(volume_transformed.shape[2]):
