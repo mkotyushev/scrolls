@@ -115,10 +115,10 @@ def build_maps(
         y_scales[indices[1], indices[0]] = y_scale
 
     # Clear outliers & nans
-    z_shifts_nan, z_shifts_outliers = build_nan_or_outliers_mask(z_shifts)
-    z_scales_nan, z_scales_outliers = build_nan_or_outliers_mask(z_scales)
-    y_shifts_nan, y_shifts_outliers = build_nan_or_outliers_mask(y_shifts)
-    y_scales_nan, y_scales_outliers = build_nan_or_outliers_mask(y_scales)
+    z_shifts_nan, z_shifts_outliers, z_shifts_q05, z_shifts_q95 = build_nan_or_outliers_mask(z_shifts)
+    z_scales_nan, z_scales_outliers, z_scales_q05, z_scales_q95 = build_nan_or_outliers_mask(z_scales)
+    y_shifts_nan, y_shifts_outliers, y_shifts_q05, y_shifts_q95 = build_nan_or_outliers_mask(y_shifts)
+    y_scales_nan, y_scales_outliers, y_scales_q05, y_scales_q95 = build_nan_or_outliers_mask(y_scales)
     
     z_shifts[z_shifts_nan] = z_shifts[~z_shifts_nan].mean()
     z_scales[z_scales_nan] = z_scales[~z_scales_nan].mean()
@@ -130,6 +130,18 @@ def build_maps(
     z_scales = interpolate_masked_pixels(z_scales, mask, method='linear')
     y_shifts = interpolate_masked_pixels(y_shifts, mask, method='linear')
     y_scales = interpolate_masked_pixels(y_scales, mask, method='linear')
+
+    # interpolate_masked_pixels does not take into account edge & large gaps
+    # so clean again
+    mask = \
+        (z_shifts < z_shifts_q05) | (z_shifts > z_shifts_q95) | \
+        (z_scales < z_scales_q05) | (z_scales > z_scales_q95) | \
+        (y_shifts < y_shifts_q05) | (y_shifts > y_shifts_q95) | \
+        (y_scales < y_scales_q05) | (y_scales > y_scales_q95)
+    z_shifts = np.where(mask, z_shifts[~mask].mean(), z_shifts)
+    z_scales = np.where(mask, z_scales[~mask].mean(), z_scales)
+    y_shifts = np.where(mask, y_shifts[~mask].mean(), y_shifts)
+    y_scales = np.where(mask, y_scales[~mask].mean(), y_scales)
 
     # Apply filtering
     if sigma is not None:

@@ -776,9 +776,12 @@ def interpolate_masked_pixels(
 
 def build_nan_or_outliers_mask(arr):
     is_nan = np.isnan(arr)
-    is_outlier = (arr < np.quantile(arr[~is_nan], 0.05)) | (arr > np.quantile(arr[~is_nan], 0.95))
+    q05 = np.quantile(arr[~is_nan], 0.05)
+    q95 = np.quantile(arr[~is_nan], 0.95)
 
-    return is_nan, is_outlier
+    is_outlier = (arr < q05) | (arr > q95)
+
+    return is_nan, is_outlier, q05, q95
 
 
 def scale_shift_volume(volume, z_shift, z_scale, center_crop_z):
