@@ -217,7 +217,6 @@ def main():
         ], 
         default='no_y'
     )
-    parser.add_argument('--normalize', action='store_true')
 
     args = parser.parse_args()
 
@@ -226,7 +225,7 @@ def main():
 
     # Build maps
     z_target = Z_TARGET[Z_TARGET_FIT_START_INDEX:Z_TARGET_FIT_END_INDEX]
-    volume_mean_per_z_target = VOLUME_MEAN_PER_Z_TARGET_NORMALIZED if args.normalize else VOLUME_MEAN_PER_Z_TARGET
+    volume_mean_per_z_target = VOLUME_MEAN_PER_Z_TARGET_NORMALIZED if args.model == 'no_y' else VOLUME_MEAN_PER_Z_TARGET
     volume_mean_per_z_target = volume_mean_per_z_target[Z_TARGET_FIT_START_INDEX:Z_TARGET_FIT_END_INDEX]
 
     z_shift, z_scale, y_shift, y_scale = build_maps(
@@ -239,7 +238,7 @@ def main():
         overlap_divider=args.overlap_divider,
         model=args.model,
         sigma=None,
-        normalize=args.normalize,
+        normalize=args.model == 'no_y',
     )
 
     # Upscale to original size
