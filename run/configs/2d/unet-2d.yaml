@@ -81,7 +81,7 @@ model:
     tta_each_n_epochs: -1
     tta_n_random_replays: 0
     pretrained: true
-    pos_weight: 1.0
+    pos_weight: 0.5
     label_smoothing: 0.0
     optimizer_init: 
       class_path: torch.optim.AdamW
