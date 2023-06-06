@@ -34,7 +34,7 @@ trainer:
   # limit_val_batches: 10
   max_epochs: 48
   num_sanity_val_steps: 0
-  accumulate_grad_batches: 4
+  accumulate_grad_batches: 1
   reload_dataloaders_every_n_epochs: 0
   log_every_n_steps: 1
   gradient_clip_val: 5
@@ -121,19 +121,18 @@ data:
       - /workspace/data/fragments_z_shift_scale_cropped/train/2a
       - /workspace/data/fragments_z_shift_scale_cropped/train/2b
       - /workspace/data/fragments_z_shift_scale_cropped/train/2c
-      - /workspace/data/fragments_z_shift_scale_cropped/train/2d
       - /workspace/data/fragments_z_shift_scale/train/3
     surface_volume_dirs_test: null
-    val_dir_indices: 5
+    val_dir_indices: 4
     z_start: 27
     z_end: 36
-    img_size: 768
+    img_size: 384
     img_size_z: 6
     z_scale_limit: 1.5
     resize_xy: crop
     use_imagenet_stats: true
     use_mix: false
-    batch_size: 2
+    batch_size: 8
     batch_size_full: null
     batch_size_full_apply_epoch: null
     num_workers: 4
