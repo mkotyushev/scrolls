@@ -57,6 +57,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         pin_memory: bool = False,
         prefetch_factor: int = 2,
         persistent_workers: bool = False,
+        use_online_test: bool = False,
     ):
         super().__init__()
 
@@ -313,15 +314,43 @@ class SurfaceVolumeDatamodule(LightningDataModule):
             )
 
         if self.test_dataset is None and self.hparams.surface_volume_dirs_test is not None:
-            self.test_dataset = OnlineSurfaceVolumeDataset(
-                pathes=self.hparams.surface_volume_dirs_test,
-                z_shift_scale_pathes=self.hparams.z_shift_scale_pathes_test,
-                z_start=self.hparams.z_start,
-                z_end=self.hparams.z_end,
-                transform=self.test_transform,
-                patch_size=val_test_patch_size,
-                patch_step=val_test_patch_step,
-            )
+            if self.hparams.use_online_test:
+                self.test_dataset = OnlineSurfaceVolumeDataset(
+                    pathes=self.hparams.surface_volume_dirs_test,
+                    z_start=self.hparams.z_start,
+                    z_end=self.hparams.z_end,
+                    transform=self.test_transform,
+                    patch_size=val_test_patch_size,
+                    patch_step=val_test_patch_step,
+                    do_scale=True,
+                    map_pathes=self.hparams.z_shift_scale_pathes_test,
+                    skip_empty_scroll_mask=True,
+                )
+            else:
+                volumes, \
+                scroll_masks, \
+                ir_images, \
+                ink_masks, \
+                subtracts, \
+                divides = \
+                    read_data(
+                        self.hparams.surface_volume_dirs_test, 
+                        z_start=self.hparams.z_start,
+                        z_end=self.hparams.z_end,
+                    )
+                
+                self.val_dataset = InMemorySurfaceVolumeDataset(
+                    volumes=volumes, 
+                    scroll_masks=scroll_masks, 
+                    pathes=val_surface_volume_dirs,
+                    ir_images=ir_images, 
+                    ink_masks=ink_masks,
+                    transform=self.test_transform,
+                    patch_size=val_test_patch_size,
+                    patch_step=val_test_patch_step,
+                    subtracts=subtracts,
+                    divides=divides,
+                )
         
         # To rebuild normalization
         self.reset_transforms()
