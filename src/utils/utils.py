@@ -340,7 +340,7 @@ class PredictionTargetPreviewAgg(nn.Module):
             patch_index_w, patch_index_h = indices[i].tolist()
 
             for name, value in arrays.items():
-                key = f'{name}_{path}'
+                key = f'{name}|{path}'
                 if key not in self.previews:
                     self.previews[key] = np.zeros(shape, dtype=arrays[name].dtype)
                     if name.startswith('proba_'):
@@ -352,7 +352,7 @@ class PredictionTargetPreviewAgg(nn.Module):
     def compute(self):
         # Unpatchify
         for name in self.previews:
-            path = '_'.join(name.split('_')[1:])
+            path = name.split('|')[-1]
             shape_original = self.shapes[path]
             if name.startswith('proba_'):
                 # Average overlapping patches
@@ -379,7 +379,7 @@ class PredictionTargetPreviewAgg(nn.Module):
 
         # Crop to shape before padding
         for name in self.previews:
-            path = '_'.join(name.split('_')[1:])
+            path = name.split('|')[-1]
             shape_before_padding = self.shapes_before_padding[path]
             self.previews[name] = self.previews[name][
                 :shape_before_padding[0], 
@@ -392,7 +392,7 @@ class PredictionTargetPreviewAgg(nn.Module):
             preds, targets = [], []
             for name in self.previews:
                 if name.startswith('proba_'):
-                    path = '_'.join(name.split('_')[1:])
+                    path = name.split('|')[-1]
                     mask = self.previews[f'mask_{path}'] > 0
                     pred = self.previews[name][mask].flatten()
                     target = self.previews[f'target_{path}'][mask].flatten()
