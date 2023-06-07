@@ -632,7 +632,7 @@ def get_z_volume_mean_per_z(volume, scroll_mask, z_start):
     return z, volume_mean_per_z
 
 
-def fit_x_shift_scale(x, y, x_target, y_target, model='no_y_scale'):
+def fit_x_shift_scale(x, y, x_target, y_target, model='no_y'):
     """Fit x_shift and scale so that f(x_target),
     where f(x) is the interpolation of y(x * scale + x_shift),
     is close to y_target in the least square sense.
@@ -662,6 +662,8 @@ def fit_x_shift_scale(x, y, x_target, y_target, model='no_y_scale'):
         Same as model 1 but additionally scale the y as well via
         exponential of minus independent total absorbance (absorbance * traveled length) 
         parameter multiplied by the change of x scale.
+    Model 'x_shift':
+        Only x shift.
     """
     assert model in [
         'no_y', 
@@ -669,6 +671,7 @@ def fit_x_shift_scale(x, y, x_target, y_target, model='no_y_scale'):
         'independent_y_shift_scale', 
         'beer_lambert_law',
         'beer_lambert_law_independent_y_shift',
+        'x_shift',
     ]
     
     # Not sure if least_squares is scale invariant, so scale variables closer to 0
@@ -774,6 +777,23 @@ def fit_x_shift_scale(x, y, x_target, y_target, model='no_y_scale'):
         total_absorbance *= ABSORBANCE_MULTIPLIER
         y_shift *= Y_SHIFT_MULTIPLIER
         y_scale = np.exp(-total_absorbance * (x_scale - 1))
+    elif model == 'x_shift':
+        def fun(p):
+            x_shift = p[0]
+            x_shift *= X_SHIFT_MULTIPLIER
+            x_shifted = x + x_shift
+            f = interpolate.interp1d(x_shifted, y, bounds_error=False, fill_value='extrapolate')
+            return f(x_target) - y_target
+        x_shift = optimize.least_squares(
+            fun=fun, 
+            x0=[0],
+            bounds=(-1, 1),
+        ).x
+        x_scale = 1
+        y_scale = 1
+        y_shift = 0
+        
+        x_shift *= X_SHIFT_MULTIPLIER
     
     return x_shift, x_scale, y_shift, y_scale
 

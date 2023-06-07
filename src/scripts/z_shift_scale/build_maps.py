@@ -214,6 +214,7 @@ def main():
             'independent_y_shift_scale', 
             'beer_lambert_law',
             'beer_lambert_law_independent_y_shift',
+            'x_shift',
         ], 
         default='no_y'
     )
@@ -225,7 +226,7 @@ def main():
 
     # Build maps
     z_target = Z_TARGET[Z_TARGET_FIT_START_INDEX:Z_TARGET_FIT_END_INDEX]
-    volume_mean_per_z_target = VOLUME_MEAN_PER_Z_TARGET_NORMALIZED if args.model == 'no_y' else VOLUME_MEAN_PER_Z_TARGET
+    volume_mean_per_z_target = VOLUME_MEAN_PER_Z_TARGET_NORMALIZED if args.model in ['no_y', 'x_shift'] else VOLUME_MEAN_PER_Z_TARGET
     volume_mean_per_z_target = volume_mean_per_z_target[Z_TARGET_FIT_START_INDEX:Z_TARGET_FIT_END_INDEX]
 
     z_shift, z_scale, y_shift, y_scale = build_maps(
@@ -238,7 +239,7 @@ def main():
         overlap_divider=args.overlap_divider,
         model=args.model,
         sigma=None,
-        normalize=args.model == 'no_y',
+        normalize=args.model in ['no_y', 'x_shift'],
     )
 
     # Upscale to original size
