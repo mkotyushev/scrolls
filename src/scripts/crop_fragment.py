@@ -10,8 +10,9 @@
 
 import argparse
 import cv2
-from pathlib import Path
+import math
 import numpy as np
+from pathlib import Path
 from tqdm import tqdm
 
 
@@ -82,8 +83,10 @@ def crop_image(in_path, in_fragment_root, out_fragments_root, center=None):
         np.save(out_path, img_crop)
 
 
-def crop_image3(in_path, in_fragment_root, out_fragments_root):
+def crop_image3(in_path, in_fragment_root, out_fragments_root, mode='geom'):
     """Crop image from in_path and save it to out_path / {i}"""
+    assert mode in ['geom', 'equal_area']
+
     if in_path.suffix in ['.png', '.tif']:
         img = cv2.imread(str(in_path), cv2.IMREAD_UNCHANGED)
     elif in_path.suffix == '.npy':
@@ -91,7 +94,13 @@ def crop_image3(in_path, in_fragment_root, out_fragments_root):
     else:
         raise ValueError(f'Unknown file type: {in_path.suffix}')
     
-    h_center, w_center = img.shape[0] // 2, img.shape[1] // 2
+    if mode == 'geom':
+        h_center, w_center = img.shape[0] // 2, img.shape[1] // 2
+    elif mode == 'equal_area':
+        # Relative to image size, precalculated so that area of true scroll mask
+        # of fragment 2 is same for all 3 subfragments
+        h_center, w_center = 0.45853000674308836, 0.5259835893120135
+        h_center, w_center = math.floor(h_center * img.shape[0]), math.floor(w_center * img.shape[1])
 
     # Crop 1 is upper half of the image
     img_crop = img[:h_center, :]
@@ -146,7 +155,12 @@ def get_scroll_mask_path(img_path):
 parser = argparse.ArgumentParser(description='Crop fragment')
 parser.add_argument('in_dir', type=Path, help='input directory (root of single fragment)')
 parser.add_argument('out_dir', type=Path, help='output directory (root of fragments)')
-parser.add_argument('mode', type=str, choices=['geom', 'mass', '3'], help='crop center is geom or mass center or custom 3 parts')
+parser.add_argument(
+    'mode', 
+    type=str, 
+    choices=['geom', 'mass', '3_geom', '3_equal_area'], 
+    help='crop center is geom or mass center 4 parts or geom or equal area 3 parts'
+)
 args = parser.parse_args()
 
 for path in tqdm(args.in_dir.glob('**/*')):
@@ -163,8 +177,10 @@ for path in tqdm(args.in_dir.glob('**/*')):
                     mass_h, mass_w = np.where(scroll_mask)
                     center = np.floor(mass_h.mean()).astype(np.int32), np.floor(mass_w.mean()).astype(np.int32)
                 crop_image(path, args.in_dir, args.out_dir, center=center)
-            elif args.mode == '3':
-                crop_image3(path, args.in_dir, args.out_dir)
+            elif args.mode == '3_geom':
+                crop_image3(path, args.in_dir, args.out_dir, mode='geom')
+            elif args.mode == '3_equal_area':
+                crop_image3(path, args.in_dir, args.out_dir, mode='equal_area')
         else:
             path_out = args.out_dir / path.relative_to(args.in_dir)
             path_out.parent.mkdir(parents=True, exist_ok=True)
