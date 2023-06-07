@@ -1,4 +1,5 @@
 import argparse
+import git
 import logging
 import os
 import sys
@@ -263,8 +264,11 @@ def main():
         y_scale,
     )
 
-    # Save run command
+    # Save run command & commit id
+    repo = git.Repo(search_parent_directories=True)
+    sha = repo.head.object.hexsha
     with open(args.output_dir / 'build_maps_args.txt', 'w') as f:
+        f.write(f'git commit id: {sha}\n')
         f.write(' '.join(['python'] + sys.argv))
 
 
