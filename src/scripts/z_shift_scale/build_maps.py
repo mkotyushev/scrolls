@@ -11,15 +11,12 @@ from tqdm import tqdm
 
 from src.data.constants import (
     N_SLICES,
-    Z_TARGET, 
     Z_TARGET_FIT_START_INDEX, 
     Z_TARGET_FIT_END_INDEX,
-    VOLUME_MEAN_PER_Z_TARGET,
-    VOLUME_MEAN_PER_Z_TARGET_NORMALIZED,
 )
 from src.data.datasets import OnlineSurfaceVolumeDataset
 from src.utils.utils import (
-    calculate_minmax_mean_per_z,
+    get_z_dataset_mean_per_z,
     get_z_volume_mean_per_z, 
     fit_x_shift_scale, 
     build_nan_or_outliers_mask, 
@@ -40,8 +37,6 @@ logging.basicConfig(
 
 def build_maps(
     path,
-    z_target,
-    volume_mean_per_z_target,
     z_start=0,
     z_end=N_SLICES,
     patch_size=256,
@@ -50,23 +45,29 @@ def build_maps(
     normalize=True,
     sigma=None,
 ):
+    # Dataset with all slices, patchification and no overlap
+    dataset = OnlineSurfaceVolumeDataset(
+        pathes=[path],
+        map_pathes=None,
+        do_scale=False,
+        z_start=0,
+        z_end=N_SLICES,
+        transform=None,
+        patch_size=patch_size,
+        patch_step=patch_size,
+    )
+    z_target, volume_mean_per_z_target = get_z_dataset_mean_per_z(dataset, z_start=0)
+
+    z_target = z_target[Z_TARGET_FIT_START_INDEX:Z_TARGET_FIT_END_INDEX]
+    volume_mean_per_z_target = volume_mean_per_z_target[Z_TARGET_FIT_START_INDEX:Z_TARGET_FIT_END_INDEX]
+
     subtract, divide = 0, 1
     if normalize:
-        # Dataset with all slices, patchification and no overlap
-        dataset = OnlineSurfaceVolumeDataset(
-            pathes=[path],
-            map_pathes=None,
-            do_scale=False,
-            z_start=0,
-            z_end=N_SLICES,
-            transform=None,
-            patch_size=patch_size,
-            patch_step=patch_size,
-        )
-        min_, max_ = calculate_minmax_mean_per_z(dataset)
+        min_, max_ = volume_mean_per_z_target.min(), volume_mean_per_z_target.max()
         subtract = min_
         divide = max_ - min_
         logger.info(f'subtract: {subtract}, divide: {divide}')
+    volume_mean_per_z_target = (volume_mean_per_z_target - subtract) / divide
     
     # Dataset with partial slices, patchification and overlap
     dataset = OnlineSurfaceVolumeDataset(
@@ -225,14 +226,8 @@ def main():
     original_width, original_height = imagesize.get(args.input_dir / 'mask.png')
 
     # Build maps
-    z_target = Z_TARGET[Z_TARGET_FIT_START_INDEX:Z_TARGET_FIT_END_INDEX]
-    volume_mean_per_z_target = VOLUME_MEAN_PER_Z_TARGET_NORMALIZED if args.model in ['no_y', 'x_shift'] else VOLUME_MEAN_PER_Z_TARGET
-    volume_mean_per_z_target = volume_mean_per_z_target[Z_TARGET_FIT_START_INDEX:Z_TARGET_FIT_END_INDEX]
-
     z_shift, z_scale, y_shift, y_scale = build_maps(
         path=args.downscaled_input_dir,
-        z_target=z_target,
-        volume_mean_per_z_target=volume_mean_per_z_target,
         z_start=17,
         z_end=50,
         patch_size=args.patch_size,
