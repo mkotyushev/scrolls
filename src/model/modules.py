@@ -283,6 +283,8 @@ class BaseModule(LightningModule):
 
     def build_parameter_groups(self):
         """Get parameter groups for optimizer."""
+        if self.hparams.lr_layer_decay == 1.0:
+            return self.parameters()
         names, params = list(zip(*self.named_parameters()))
         num_layers = len(params)
         grouped_parameters = [
