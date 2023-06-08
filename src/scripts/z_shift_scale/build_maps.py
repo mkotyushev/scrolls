@@ -199,7 +199,7 @@ def build_maps_wrt_self(
 
 def build_maps_wrt_ideal(
     path,
-    map_pathes,
+    map_path,
     z_start=0,
     z_end=N_SLICES,
     patch_size=256,
@@ -212,7 +212,7 @@ def build_maps_wrt_ideal(
     dataset = OnlineSurfaceVolumeDataset(
         pathes=[path],
         do_scale=True,
-        map_pathes=map_pathes,
+        map_pathes=[map_path],
         z_start=z_start,
         z_end=z_end,
         transform=None,
@@ -297,7 +297,7 @@ def main():
     # Build z shift & scale maps and scalar y shift & scale maps wrt ideal
     z_shift_wrt_ideal, z_scale_wrt_ideal, y_shift_wrt_ideal, y_scale_wrt_ideal = build_maps_wrt_ideal(
         path=args.input_dir,
-        map_pathes=temp_dir,
+        map_path=temp_dir,
         z_start=17,
         z_end=50,
         patch_size=args.patch_size,
