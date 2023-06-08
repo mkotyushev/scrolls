@@ -320,7 +320,7 @@ class BaseModule(LightningModule):
             module = __import__(class_module, fromlist=[class_name])
             args_class = getattr(module, class_name)
             
-            optimizer = mechanize(args_class)(*args, *kwargs)
+            optimizer = mechanize(args_class)(*args, **kwargs)
             
             return optimizer
 
