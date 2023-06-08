@@ -18,12 +18,14 @@ mapping(npy_intp *output_coordinates, double *input_coordinates,
     double n_cols = *(double *)(user_data + offset); offset += sizeof(double);
 
     long offset_shift = ((long)(floor(
+        offset +
         0 +
         output_coordinates[0] * n_cols + output_coordinates[1]
     ))) * sizeof(double);
     double shift = *(double *)(user_data + offset_shift);
 
     long offset_scale = ((long)(floor(
+        offset +
         n_rows * n_cols +
         output_coordinates[0] * n_cols + output_coordinates[1]
     ))) * sizeof(double);
@@ -33,7 +35,7 @@ mapping(npy_intp *output_coordinates, double *input_coordinates,
     input_coordinates[1] = output_coordinates[1];
     
     double eps = 1e-8;
-    if (abs(scale) < eps) {
+    if (fabs(scale) < eps) {
         input_coordinates[2] = z_start + output_coordinates[2] - z_start_input;
     } else {
         input_coordinates[2] = (z_start + output_coordinates[2] - shift) / scale - z_start_input;
