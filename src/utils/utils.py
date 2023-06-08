@@ -622,12 +622,7 @@ def get_z_dataset_mean_per_z(dataset, z_start):
 
 def get_z_volume_mean_per_z(volume, scroll_mask, z_start):
     z = np.arange(z_start, z_start + volume.shape[2])
-    H, W, D = volume.shape
-    scroll_mask_flattened_xy = (scroll_mask > 0).flatten()
-    volume_flattened_xy = volume.reshape(H * W, D)
-    volume_mean_per_z = volume_flattened_xy[
-        scroll_mask_flattened_xy
-    ].mean(0)
+    volume_mean_per_z = volume[scroll_mask > 0].mean(0)
 
     return z, volume_mean_per_z
 
