@@ -117,11 +117,11 @@ data:
   class_path: src.data.datamodules.SurfaceVolumeDatamodule
   init_args:
     surface_volume_dirs: 
-      - /workspace/data/fragments_z_shift_scale_no_y_256_2/train/1
-      - /workspace/data/fragments_z_shift_scale_no_y_256_2/train/2a
-      - /workspace/data/fragments_z_shift_scale_no_y_256_2/train/2b
-      - /workspace/data/fragments_z_shift_scale_no_y_256_2/train/2c
-      - /workspace/data/fragments_z_shift_scale_no_y_256_2/train/3
+      - /workspace/data/fragments_z_shift_scale_3_stage_256_2/train/1
+      - /workspace/data/fragments_z_shift_scale_3_stage_256_2/train/2a
+      - /workspace/data/fragments_z_shift_scale_3_stage_256_2/train/2b
+      - /workspace/data/fragments_z_shift_scale_3_stage_256_2/train/2c
+      - /workspace/data/fragments_z_shift_scale_3_stage_256_2/train/3
     surface_volume_dirs_test: null
     val_dir_indices: 4
     z_start: 27
