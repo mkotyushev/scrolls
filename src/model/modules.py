@@ -636,6 +636,7 @@ class SegmentationModule(BaseModule):
         n_bootstrap: int = 1000,
         skip_nan: bool = False,
         prog_bar_names: Optional[list] = None,
+        mechanize: bool = False,
         img_size=256,
     ):
         super().__init__(
@@ -648,6 +649,7 @@ class SegmentationModule(BaseModule):
             n_bootstrap=n_bootstrap,
             skip_nan=skip_nan,
             prog_bar_names=prog_bar_names,
+            mechanize=mechanize,
         )
         self.save_hyperparameters()
         self.model = build_segmentation(
