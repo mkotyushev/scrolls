@@ -260,19 +260,6 @@ def main():
     parser.add_argument('--patch_size', type=int, default=256)
     parser.add_argument('--downscale_factor', type=int, default=2)
     parser.add_argument('--overlap_divider', type=int, default=2)
-    parser.add_argument(
-        '--model', 
-        type=str, 
-        choices=[
-            'no_y', 
-            'independent_y_scale', 
-            'independent_y_shift_scale', 
-            'beer_lambert_law',
-            'beer_lambert_law_independent_y_shift',
-            'x_shift',
-        ], 
-        default='no_y'
-    )
 
     args = parser.parse_args()
 
