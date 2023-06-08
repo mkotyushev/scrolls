@@ -51,16 +51,13 @@ def build_maps_wrt_self(
         pathes=[path],
         map_pathes=None,
         do_scale=False,
-        z_start=0,
-        z_end=N_SLICES,
+        z_start=Z_TARGET_FIT_START_INDEX,
+        z_end=Z_TARGET_FIT_END_INDEX,
         transform=None,
         patch_size=patch_size,
         patch_step=patch_size,
     )
-    z_target, volume_mean_per_z_target = get_z_dataset_mean_per_z(dataset, z_start=0)
-
-    z_target = z_target[Z_TARGET_FIT_START_INDEX:Z_TARGET_FIT_END_INDEX]
-    volume_mean_per_z_target = volume_mean_per_z_target[Z_TARGET_FIT_START_INDEX:Z_TARGET_FIT_END_INDEX]
+    z_target, volume_mean_per_z_target = get_z_dataset_mean_per_z(dataset, z_start=Z_TARGET_FIT_START_INDEX)
 
     min_, max_ = volume_mean_per_z_target.min(), volume_mean_per_z_target.max()
     subtract = min_
@@ -221,7 +218,7 @@ def build_maps_wrt_ideal(
     )
     shape_before_padding = dataset[0]['shape_before_padding'].tolist()
 
-    z, volume_mean_per_z = get_z_dataset_mean_per_z(dataset, z_start=0)
+    z, volume_mean_per_z = get_z_dataset_mean_per_z(dataset, z_start=z_start)
     min_, max_ = volume_mean_per_z.min(), volume_mean_per_z.max()
     volume_mean_per_z = (volume_mean_per_z - min_) / (max_ - min_)
 
@@ -265,7 +262,7 @@ def main():
     z_shift_wrt_self, z_scale_wrt_self, y_shift_wrt_self, y_scale_wrt_self = build_maps_wrt_self(
         path=args.downscaled_input_dir,
         z_start=17,
-        z_end=50,
+        z_end=48,
         patch_size=args.patch_size,
         overlap_divider=args.overlap_divider,
         sigma=None,
@@ -296,21 +293,16 @@ def main():
 
     # Build z shift & scale maps and scalar y shift & scale maps wrt ideal
     z_shift_wrt_ideal, z_scale_wrt_ideal, y_shift_wrt_ideal, y_scale_wrt_ideal = build_maps_wrt_ideal(
-        path=args.input_dir,
+        path=args.downscaled_input_dir,
         map_path=temp_dir,
         z_start=17,
-        z_end=50,
+        z_end=48,
         patch_size=args.patch_size,
     )
     assert np.allclose(y_shift_wrt_ideal, y_shift_wrt_ideal[0, 0]), \
         'y_shift_wrt_ideal should be all the same'
     assert np.allclose(y_scale_wrt_ideal, y_scale_wrt_ideal[0, 0]), \
         'y_scale_wrt_ideal should be all the same'
-
-    # Remove temp dir
-    for path in temp_dir.iterdir():
-        path.unlink()
-    temp_dir.rmdir()
 
     # Build superposition z shift and scale maps:
     # first wrt self is applied, then wrt ideal
