@@ -204,17 +204,11 @@ def build_maps_wrt_ideal(
     z_end=N_SLICES,
     patch_size=256,
 ):
-    # Get ideal curve
+    # Get ideal normalized curve
     z_target = Z_TARGET[Z_TARGET_FIT_START_INDEX:Z_TARGET_FIT_END_INDEX]
     volume_mean_per_z_target = VOLUME_MEAN_PER_Z_TARGET_NORMALIZED[Z_TARGET_FIT_START_INDEX:Z_TARGET_FIT_END_INDEX]
 
-    min_, max_ = volume_mean_per_z_target.min(), volume_mean_per_z_target.max()
-    subtract = min_
-    divide = max_ - min_
-    logger.info(f'subtract: {subtract}, divide: {divide}')
-    volume_mean_per_z_target = (volume_mean_per_z_target - subtract) / divide
-
-    # Get curve for the fragment
+    # Get the fragment normalized curve
     dataset = OnlineSurfaceVolumeDataset(
         pathes=[path],
         do_scale=True,
@@ -227,9 +221,11 @@ def build_maps_wrt_ideal(
     )
     shape_before_padding = dataset[0]['shape_before_padding'].tolist()
 
-    # Fit z_shifts and z_scales
     z, volume_mean_per_z = get_z_dataset_mean_per_z(dataset, z_start=0)
-    volume_mean_per_z = (volume_mean_per_z - subtract) / divide
+    min_, max_ = volume_mean_per_z.min(), volume_mean_per_z.max()
+    volume_mean_per_z = (volume_mean_per_z - min_) / (max_ - min_)
+
+    # Fit z_shifts and z_scales
     z_shift, z_scale, _, _ = fit_x_shift_scale(
         z, 
         volume_mean_per_z, 
@@ -238,8 +234,7 @@ def build_maps_wrt_ideal(
         model='no_y',
     )
 
-    # Set y_shifts and y_scales according to the stats
-    min_, max_ = volume_mean_per_z_target.min(), volume_mean_per_z_target.max()
+    # Set y_shifts and y_scales according to the vfragment stats
     y_shift = -min_
     y_scale = max_ - min_
 
