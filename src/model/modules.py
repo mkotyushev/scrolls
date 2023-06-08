@@ -29,6 +29,7 @@ from src.model.swin_transformer_v2_3d import (
 from src.model.unet_2d_agg import Unet2dAgg
 from src.model.unet_2d import Unet2d
 from src.model.unet_3d_acs import ConvNeXtBlockAcs, UNet3dAcs, ACSConverterTimm
+from src.utils.mechanic import mechanize
 from src.utils.utils import (
     FeatureExtractorWrapper, 
     FeatureExtractorWrapper3d,
@@ -54,6 +55,7 @@ class BaseModule(LightningModule):
         n_bootstrap: int = 1000,
         skip_nan: bool = False,
         prog_bar_names: Optional[list] = None,
+        mechanize: bool = False,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -305,8 +307,22 @@ class BaseModule(LightningModule):
         return grouped_parameters
 
     def configure_optimizer(self):
-        optimizer = instantiate_class(args=self.build_parameter_groups(), init=self.hparams.optimizer_init)
-        return optimizer
+        if not self.hparams.mechanize:
+            optimizer = instantiate_class(args=self.build_parameter_groups(), init=self.hparams.optimizer_init)
+            return optimizer
+        else:
+            # similar to instantiate_class, but with mechanize
+            args, init = self.build_parameter_groups(), self.hparams.optimizer_init
+            kwargs = init.get("init_args", {})
+            if not isinstance(args, tuple):
+                args = (args,)
+            class_module, class_name = init["class_path"].rsplit(".", 1)
+            module = __import__(class_module, fromlist=[class_name])
+            args_class = getattr(module, class_name)
+            
+            optimizer = mechanize(args_class)(*args, *kwargs)
+            
+            return optimizer
 
     def configure_lr_scheduler(self, optimizer):
         # Convert milestones from total persents to steps

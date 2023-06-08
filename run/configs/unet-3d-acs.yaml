@@ -69,6 +69,7 @@ model:
     tta_each_n_epochs: 5
     tta_n_random_replays: 0
     pretrained: true
+    mechanize: false
     pos_weight: 0.5
     label_smoothing: 0.0
     optimizer_init: 
