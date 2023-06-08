@@ -280,22 +280,22 @@ def main():
     assert np.allclose(y_scale_wrt_self, 1.0), 'y_scale_wrt_self should be 1.0'
 
     # Save to temp dir
-    temp_dir = Path('/tmp/build_maps')
+    temp_dir = Path('tmp/build_maps')
     temp_dir.mkdir(parents=True, exist_ok=True)
     np.save(
-        args.output_dir / 'z_shift.npy',
+        temp_dir / 'z_shift.npy',
         z_shift_wrt_self,
     )
     np.save(
-        args.output_dir / 'z_scale.npy',
+        temp_dir / 'z_scale.npy',
         z_scale_wrt_self,
     )
     np.save(
-        args.output_dir / 'y_shift.npy',
+        temp_dir / 'y_shift.npy',
         y_shift_wrt_self,
     )
     np.save(
-        args.output_dir / 'y_scale.npy',
+        temp_dir / 'y_scale.npy',
         y_scale_wrt_self,
     )
 
