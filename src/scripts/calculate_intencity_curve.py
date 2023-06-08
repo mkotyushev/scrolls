@@ -22,6 +22,7 @@ logging.basicConfig(
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--input_dir', type=Path, required=True)
+parser.add_argument('--maps_dir', type=Path, required=True)
 parser.add_argument('--patch_size', type=int, default=256)
 parser.add_argument('--normalize', action='store_true')
 args = parser.parse_args()
@@ -29,8 +30,8 @@ args = parser.parse_args()
 
 dataset = OnlineSurfaceVolumeDataset(
     pathes=[args.input_dir],
-    map_pathes=None,
-    do_scale=False,
+    map_pathes=[args.maps_dir],
+    do_scale=True,
     z_start=0,
     z_end=N_SLICES,
     transform=None,
@@ -41,6 +42,6 @@ dataset = OnlineSurfaceVolumeDataset(
 # Calculate intensity per z
 z, volume_mean_per_z = get_z_dataset_mean_per_z(dataset, z_start=0)
 if args.normalize:
-    volume_mean_per_z = (volume_mean_per_z - volume_mean_per_z.min()) / (volume_mean_per_z.max() - volume_mean_per_z.min())
+    volume_mean_per_z = (volume_mean_per_z - volume_mean_per_z[17:48].min()) / (volume_mean_per_z[17:48].max() - volume_mean_per_z[17:48].min())
 
 print(f'z: {z}, volume_mean_per_z: {volume_mean_per_z}')
