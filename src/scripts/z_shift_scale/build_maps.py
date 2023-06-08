@@ -76,7 +76,7 @@ def build_maps_wrt_self(
     )
 
     z_shifts, z_scales, shape_patches, shape_original, shape_before_padding = \
-        None, None, None, None, None, None, None
+        None, None, None, None, None
     for j in tqdm(range(len(dataset))):
         item = dataset[j]
 
