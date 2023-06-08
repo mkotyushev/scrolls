@@ -528,7 +528,7 @@ class OnlineSurfaceVolumeDataset:
             )
             
             # Apply y shift and scale maps
-            image = ((image - y_shift[..., None]) / y_scale[..., None]).astype(np.uint16)
+            image = ((image + y_shift[..., None]) / y_scale[..., None]).astype(np.uint16)
         
         output = {
             'image': image,  # volume, (H, W, D)

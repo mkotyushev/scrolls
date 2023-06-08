@@ -12,6 +12,8 @@ from tqdm import tqdm
 
 from src.data.constants import (
     N_SLICES,
+    VOLUME_MEAN_PER_Z_TARGET_NORMALIZED,
+    Z_TARGET,
     Z_TARGET_FIT_START_INDEX, 
     Z_TARGET_FIT_END_INDEX,
 )
@@ -36,14 +38,12 @@ logging.basicConfig(
 )
 
 
-def build_maps(
+def build_maps_wrt_self(
     path,
     z_start=0,
     z_end=N_SLICES,
     patch_size=256,
     overlap_divider=2,
-    model='no_y',
-    normalize=True,
     sigma=None,
 ):
     # Dataset with all slices, patchification and no overlap
@@ -62,12 +62,10 @@ def build_maps(
     z_target = z_target[Z_TARGET_FIT_START_INDEX:Z_TARGET_FIT_END_INDEX]
     volume_mean_per_z_target = volume_mean_per_z_target[Z_TARGET_FIT_START_INDEX:Z_TARGET_FIT_END_INDEX]
 
-    subtract, divide = 0, 1
-    if normalize:
-        min_, max_ = volume_mean_per_z_target.min(), volume_mean_per_z_target.max()
-        subtract = min_
-        divide = max_ - min_
-        logger.info(f'subtract: {subtract}, divide: {divide}')
+    min_, max_ = volume_mean_per_z_target.min(), volume_mean_per_z_target.max()
+    subtract = min_
+    divide = max_ - min_
+    logger.info(f'subtract: {subtract}, divide: {divide}')
     volume_mean_per_z_target = (volume_mean_per_z_target - subtract) / divide
     
     # Dataset with partial slices, patchification and overlap
@@ -107,7 +105,7 @@ def build_maps(
             volume_mean_per_z, 
             z_target, 
             volume_mean_per_z_target,
-            model=model,
+            model='x_shift',
         )
 
         indices = item['indices']
@@ -199,6 +197,61 @@ def build_maps(
     return z_shifts, z_scales, y_shifts, y_scales
 
 
+def build_maps_wrt_ideal(
+    path,
+    map_pathes,
+    z_start=0,
+    z_end=N_SLICES,
+    patch_size=256,
+):
+    # Get ideal curve
+    z_target = Z_TARGET[Z_TARGET_FIT_START_INDEX:Z_TARGET_FIT_END_INDEX]
+    volume_mean_per_z_target = VOLUME_MEAN_PER_Z_TARGET_NORMALIZED[Z_TARGET_FIT_START_INDEX:Z_TARGET_FIT_END_INDEX]
+
+    min_, max_ = volume_mean_per_z_target.min(), volume_mean_per_z_target.max()
+    subtract = min_
+    divide = max_ - min_
+    logger.info(f'subtract: {subtract}, divide: {divide}')
+    volume_mean_per_z_target = (volume_mean_per_z_target - subtract) / divide
+
+    # Get curve for the fragment
+    dataset = OnlineSurfaceVolumeDataset(
+        pathes=[path],
+        do_scale=True,
+        map_pathes=map_pathes,
+        z_start=z_start,
+        z_end=z_end,
+        transform=None,
+        patch_size=patch_size,
+        patch_step=patch_size,
+    )
+    shape_before_padding = dataset[0]['shape_before_padding'].tolist()
+
+    # Fit z_shifts and z_scales
+    z, volume_mean_per_z = get_z_dataset_mean_per_z(dataset, z_start=0)
+    volume_mean_per_z = (volume_mean_per_z - subtract) / divide
+    z_shift, z_scale, _, _ = fit_x_shift_scale(
+        z, 
+        volume_mean_per_z, 
+        z_target, 
+        volume_mean_per_z_target,
+        model='no_y',
+    )
+
+    # Set y_shifts and y_scales according to the stats
+    min_, max_ = volume_mean_per_z_target.min(), volume_mean_per_z_target.max()
+    y_shift = -min_
+    y_scale = max_ - min_
+
+    z_shifts, z_scales, y_shifts, y_scales = \
+        np.full(shape_before_padding[:2], fill_value=z_shift, dtype=np.float32), \
+        np.full(shape_before_padding[:2], fill_value=z_scale, dtype=np.float32), \
+        np.full(shape_before_padding[:2], fill_value=y_shift, dtype=np.float32), \
+        np.full(shape_before_padding[:2], fill_value=y_scale, dtype=np.float32)
+    
+    return z_shifts, z_scales, y_shifts, y_scales
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--input_dir', type=Path, required=True)
@@ -226,17 +279,71 @@ def main():
     # Read original image size
     original_width, original_height = imagesize.get(args.input_dir / 'mask.png')
 
-    # Build maps
-    z_shift, z_scale, y_shift, y_scale = build_maps(
+    # Build z shift maps wrt self
+    z_shift_wrt_self, z_scale_wrt_self, y_shift_wrt_self, y_scale_wrt_self = build_maps_wrt_self(
         path=args.downscaled_input_dir,
         z_start=17,
         z_end=50,
         patch_size=args.patch_size,
         overlap_divider=args.overlap_divider,
-        model=args.model,
         sigma=None,
-        normalize=args.model in ['no_y', 'x_shift'],
     )
+    assert np.allclose(z_scale_wrt_self, 1.0), 'z_scale_wrt_self should be 1.0'
+    assert np.allclose(y_shift_wrt_self, 0.0), 'y_shift_wrt_self should be 0.0'
+    assert np.allclose(y_scale_wrt_self, 1.0), 'y_scale_wrt_self should be 1.0'
+
+    # Save to temp dir
+    temp_dir = Path('/tmp/build_maps')
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    np.save(
+        args.output_dir / 'z_shift.npy',
+        z_shift_wrt_self,
+    )
+    np.save(
+        args.output_dir / 'z_scale.npy',
+        z_scale_wrt_self,
+    )
+    np.save(
+        args.output_dir / 'y_shift.npy',
+        y_shift_wrt_self,
+    )
+    np.save(
+        args.output_dir / 'y_scale.npy',
+        y_scale_wrt_self,
+    )
+
+    # Build z shift & scale maps and scalar y shift & scale maps wrt ideal
+    z_shift_wrt_ideal, z_scale_wrt_ideal, y_shift_wrt_ideal, y_scale_wrt_ideal = build_maps_wrt_ideal(
+        path=args.input_dir,
+        map_pathes=temp_dir,
+        z_start=17,
+        z_end=50,
+        patch_size=args.patch_size,
+    )
+    assert np.allclose(y_shift_wrt_ideal, y_shift_wrt_ideal[0, 0]), \
+        'y_shift_wrt_ideal should be all the same'
+    assert np.allclose(y_scale_wrt_ideal, y_scale_wrt_ideal[0, 0]), \
+        'y_scale_wrt_ideal should be all the same'
+
+    # Remove temp dir
+    for path in temp_dir.iterdir():
+        path.unlink()
+    temp_dir.rmdir()
+
+    # Build superposition z shift and scale maps:
+    # first wrt self is applied, then wrt ideal
+    # z_input = 
+    #   = (z - shift) / scale =
+    #   = ((z - shift_wrt_self) / scale_wrt_self) - shift_wrt_ideal) / scale_wrt_ideal;
+    # thus:
+    #   scale = scale_wrt_self * scale_wrt_ideal
+    #   shift = shift_wrt_self + shift_wrt_ideal * scale_wrt_self
+    z_shift = z_shift_wrt_self + z_shift_wrt_ideal * z_scale_wrt_self
+    z_scale = z_scale_wrt_self * z_scale_wrt_ideal
+
+    # Use only y shift & scale wrt ideal
+    y_shift = y_shift_wrt_ideal
+    y_scale = y_scale_wrt_ideal
 
     # Upscale to original size
     z_shift = cv2.resize(z_shift, (original_width, original_height), interpolation=cv2.INTER_LINEAR)
