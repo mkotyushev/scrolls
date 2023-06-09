@@ -64,6 +64,7 @@ model:
     decoder_attention_type: scse
     backbone_name: null
     mechanize: false
+    loss_name: bce
     pos_weight: 5.0
     label_smoothing: 0.0
     optimizer_init: 

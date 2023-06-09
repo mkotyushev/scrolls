@@ -14,6 +14,7 @@ from torchmetrics.classification import BinaryFBetaScore
 from lightning.pytorch.utilities import grad_norm
 from unittest.mock import patch
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
+from torchvision.ops import sigmoid_focal_loss
 
 from src.data.transforms import Tta
 from src.model.smp import Unet, patch_first_conv
@@ -638,6 +639,7 @@ class SegmentationModule(BaseModule):
         prog_bar_names: Optional[list] = None,
         mechanize: bool = False,
         img_size=256,
+        loss_name: str = 'bce',
     ):
         super().__init__(
             optimizer_init=optimizer_init,
@@ -685,20 +687,33 @@ class SegmentationModule(BaseModule):
         if 'mask_2' not in batch:
             return None, None, preds
 
-        # 3d_acs_weights outputs probabilities, not logits
-        weight = torch.where(
-            batch['mask_2'] == 1,
-            torch.tensor(self.hparams.pos_weight, dtype=torch.float32, device=batch['mask_2'].device),
-            torch.tensor(1.0, dtype=torch.float32, device=batch['mask_2'].device),
-        ).flatten()
 
-        losses = {
-            'bce': F.binary_cross_entropy_with_logits(
+        if self.hparams.loss_name == 'bce':
+            # 3d_acs_weights outputs probabilities, not logits
+            weight = torch.where(
+                batch['mask_2'] == 1,
+                torch.tensor(self.hparams.pos_weight, dtype=torch.float32, device=batch['mask_2'].device),
+                torch.tensor(1.0, dtype=torch.float32, device=batch['mask_2'].device),
+            ).flatten()
+            loss_value = F.binary_cross_entropy_with_logits(
                 preds.squeeze(1).float().flatten(),
                 batch['mask_2'].float().flatten(),
                 reduction='mean',
                 weight=weight,
-            ),
+            )
+        elif self.hparams.loss_name == 'focal':
+            loss_value = sigmoid_focal_loss(
+                preds.squeeze(1).float().flatten(),
+                batch['mask_2'].float().flatten(),
+                reduction='mean',
+                # alpha is in [0, 1] with negative weight assigned to 1 - alpha 
+                # and pos_weight is absolute assuming negative weight is 1.0
+                # so it need to be converted
+                alpha=self.hparams.pos_weight / (1.0 + self.hparams.pos_weight),
+            )
+        
+        losses = {
+            self.hparams.loss_name: loss_value,
         }
         total_loss = sum(losses.values())
         return total_loss, losses, preds

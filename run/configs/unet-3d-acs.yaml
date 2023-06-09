@@ -70,6 +70,7 @@ model:
     tta_n_random_replays: 0
     pretrained: true
     mechanize: false
+    loss_name: bce
     pos_weight: 0.5
     label_smoothing: 0.0
     optimizer_init: 
