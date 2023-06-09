@@ -36,8 +36,8 @@ RUN \
     /root/miniconda3/envs/scrolls/bin/pip install \
     --default-timeout=1000 \
     --extra-index-url https://download.pytorch.org/whl/cu117 \
-    torch==2.0.0+cu117 \
-    torchvision==0.15.1+cu117
+    torch==2.0.1+cu117 \
+    torchvision==0.15.2+cu117
 
 # Install requirements
 COPY requirements.txt .
