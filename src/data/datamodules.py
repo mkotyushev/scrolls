@@ -150,7 +150,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 ),
                 A.HorizontalFlip(p=0.5),
                 A.VerticalFlip(p=0.5),
-                A.RandomRotate90(p=0.5),
+                # A.RandomRotate90(p=0.5),
                 A.RandomBrightnessContrast(p=0.5, brightness_limit=0.1, contrast_limit=0.1),
                 A.OneOf(
                     [
