@@ -16,15 +16,12 @@ parameters:
   model.init_args.backbone_name:
     distribution: categorical
     values: 
-    - caformer_b36.sail_in22k_ft_in1k_384
     - convnextv2_base.fcmae_ft_in22k_in1k_384
     - maxvit_rmlp_base_rw_384.sw_in12k_ft_in1k
-    - swinv2_base_window12to24_192to384.ms_in22k_ft_in1k
   data.init_args.img_size:
     distribution: categorical
     values:
     - 384
-    - 768
   data.init_args.mix_transform_name:
     distribution: categorical
     values:

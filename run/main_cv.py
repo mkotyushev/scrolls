@@ -103,7 +103,7 @@ def train(sweep_q, worker_q):
     exit()
 
 
-FOLDS = [0, 1, 5]
+FOLDS = [0, 1, 2, 3, 4]
 def main():
     # Spin up workers before calling wandb.init()
     # Workers will be blocked on a queue waiting to start
