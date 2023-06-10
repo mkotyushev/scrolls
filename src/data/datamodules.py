@@ -154,7 +154,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 ),
                 A.HorizontalFlip(p=0.5),
                 A.VerticalFlip(p=0.5),
-                # A.RandomRotate90(p=0.5),
+                A.RandomRotate90(p=0.5),
                 A.RandomBrightnessContrast(p=0.5, brightness_limit=0.1, contrast_limit=0.1),
                 A.OneOf(
                     [
@@ -164,7 +164,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     ], 
                     p=0.4
                 ),
-                # A.GridDistortion(num_steps=5, distort_limit=0.3, p=0.5),
+                A.GridDistortion(num_steps=5, distort_limit=0.3, p=0.5),
                 A.CoarseDropout(
                     max_holes=1, 
                     max_width=int(self.hparams.img_size * 0.3), 
