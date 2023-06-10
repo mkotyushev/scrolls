@@ -117,7 +117,7 @@ data:
     z_scale_limit: 2.0
     resize_xy: crop
     use_imagenet_stats: true
-    use_mix: false
+    mix_transform_name: null
     batch_size: 4
     batch_size_full: 4
     batch_size_full_apply_epoch: null

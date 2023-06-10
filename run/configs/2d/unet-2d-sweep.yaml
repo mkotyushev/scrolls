@@ -25,8 +25,10 @@ parameters:
     values:
     - 384
     - 768
-  data.init_args.use_mix:
+  data.init_args.mix_transform_name:
     distribution: categorical
     values:
-    - false
-    - true
+    - cutmix
+    - mixup
+    - cpp
+    - null

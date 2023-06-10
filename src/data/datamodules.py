@@ -49,7 +49,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         z_scale_limit: float = 2.0,
         resize_xy: str = 'crop',
         use_imagenet_stats: bool = True,
-        use_mix: bool = False,
+        mix_transform_name: Optional[str] = None,
         batch_size: int = 32,
         batch_size_full: int = 32,
         batch_size_full_apply_epoch: Optional[int] = None,
@@ -68,6 +68,10 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         if isinstance(val_dir_indices, int):
             val_dir_indices = [val_dir_indices]
         self.save_hyperparameters()
+
+        assert mix_transform_name is None or \
+            mix_transform_name in ['cutmix', 'mixup', 'cpp'], \
+            'mix_transform_name must be one of [cutmix, mixup, cpp]'
 
         self.train_dataset = None
         self.val_dataset = None
@@ -128,7 +132,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         # and post transform is done in train_transform_mix
         # otherwise post transform is done in train_transform 
         post_transform = []
-        if not self.hparams.use_mix:
+        if self.hparams.mix_transform_name is None:
             post_transform = [
                 ToTensorV2(),
                 ToCHWD(always_apply=True),
@@ -177,23 +181,31 @@ class SurfaceVolumeDatamodule(LightningDataModule):
             ],
         )
         self.train_transform_mix = None
-        if self.hparams.use_mix:
+        if self.hparams.mix_transform_name is not None:
+            if self.hparams.mix_transform_name == 'cutmix':
+                mix_transform = CutMix(
+                    width=int(self.hparams.img_size * 0.3), 
+                    height=int(self.hparams.img_size * 0.3), 
+                    p=1.0,
+                    always_apply=False,
+                )
+            elif self.hparams.mix_transform_name == 'mixup':
+                mix_transform = MixUp(
+                    alpha=3.0, 
+                    beta=3.0, 
+                    p=1.0,
+                    always_apply=False,
+                )
+            elif self.hparams.mix_transform_name == 'cpp':
+                mix_transform = CopyPastePositive(
+                    mask_index=2, 
+                    p=1.0, 
+                    always_apply=False,
+                )
             self.train_transform_mix = A.Compose(
                 [
                     ToFloatMasks(),
-                    A.OneOf(
-                        [
-                            CutMix(
-                                width=int(self.hparams.img_size * 0.3), 
-                                height=int(self.hparams.img_size * 0.3), 
-                                p=1.0,
-                                always_apply=False,
-                            ),
-                            MixUp(alpha=3.0, beta=3.0, p=1.0, always_apply=False),
-                            CopyPastePositive(mask_index=2, p=1.0, always_apply=False),
-                        ],
-                        p=0.5,
-                    ),
+                    mix_transform,
                     ToTensorV2(),
                     ToCHWD(always_apply=True),
                 ],
