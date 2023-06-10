@@ -614,6 +614,18 @@ def build_segmentation(
     return model
 
 
+def dice_with_logits_loss(input, target, smooth=1.0):
+    """Dice loss for logits."""
+    input = torch.sigmoid(input)
+
+    iflat = input.view(-1)
+    tflat = target.view(-1)
+    intersection = (iflat * tflat).sum()
+    
+    return 1 - ((2. * intersection + smooth) /
+              (iflat.sum() + tflat.sum() + smooth))
+
+
 class SegmentationModule(BaseModule):
     def __init__(
         self, 
@@ -669,6 +681,7 @@ class SegmentationModule(BaseModule):
         else:
             self.unfreeze_only_selected()
 
+        assert loss_name in ['bce', 'focal', 'dice'], f'Unknown loss name {loss_name}.'
         assert tta_each_n_epochs != 0, \
             'tta_each_n_epochs == 0 is not supported, use tta_each_n_epochs == -1 to disable TTA.'
         self.tta = \
@@ -710,6 +723,11 @@ class SegmentationModule(BaseModule):
                 # and pos_weight is absolute assuming negative weight is 1.0
                 # so it need to be converted
                 alpha=self.hparams.pos_weight / (1.0 + self.hparams.pos_weight),
+            )
+        elif self.hparams.loss_name == 'dice':
+            loss_value = dice_with_logits_loss(
+                preds.squeeze(1).float().flatten(),
+                batch['mask_2'].float().flatten(),
             )
         
         losses = {
