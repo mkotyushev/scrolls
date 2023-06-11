@@ -246,10 +246,14 @@ class SurfaceVolumeDatamodule(LightningDataModule):
             None \
             if self.hparams.resize_xy in ['resize', 'none'] else \
             self.hparams.img_size
-        val_test_patch_step = \
+        val_patch_step = \
             None \
             if self.hparams.resize_xy in ['resize', 'none'] else \
             self.hparams.img_size // 2
+        test_patch_step = \
+            None \
+            if self.hparams.resize_xy in ['resize', 'none'] else \
+            self.hparams.img_size // 8
 
         # Train
         train_surface_volume_dirs, val_surface_volume_dirs = [], []
@@ -320,7 +324,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 ink_masks=ink_masks,
                 transform=self.val_transform,
                 patch_size=val_test_patch_size,
-                patch_step=val_test_patch_step,
+                patch_step=val_patch_step,
                 subtracts=subtracts,
                 divides=divides,
             )
@@ -333,7 +337,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     z_end=self.hparams.z_end,
                     transform=self.test_transform,
                     patch_size=val_test_patch_size,
-                    patch_step=val_test_patch_step,
+                    patch_step=test_patch_step,
                     do_scale=True,
                     map_pathes=self.hparams.z_shift_scale_pathes_test,
                     skip_empty_scroll_mask=True,
@@ -351,7 +355,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                         z_end=self.hparams.z_end,
                     )
                 
-                self.val_dataset = InMemorySurfaceVolumeDataset(
+                self.test_dataset = InMemorySurfaceVolumeDataset(
                     volumes=volumes, 
                     scroll_masks=scroll_masks, 
                     pathes=val_surface_volume_dirs,
@@ -359,7 +363,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                     ink_masks=ink_masks,
                     transform=self.test_transform,
                     patch_size=val_test_patch_size,
-                    patch_step=val_test_patch_step,
+                    patch_step=test_patch_step,
                     subtracts=subtracts,
                     divides=divides,
                 )
