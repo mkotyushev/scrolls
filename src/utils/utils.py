@@ -913,6 +913,7 @@ class PredictionWriter(BasePredictionWriter):
         self.aggregator = PredictionTargetPreviewAgg(
             preview_downscale=None,
             metrics=None,
+            overlap_avg_weight_mode='spline',
         )
 
     def write_on_batch_end(
