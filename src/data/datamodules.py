@@ -40,6 +40,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         self,
         surface_volume_dirs: List[str] | str = './data/train',	
         surface_volume_dirs_test: Optional[List[str] | str] = None,	
+        z_shift_scale_pathes_val: Optional[List[str] | str] = None,
         z_shift_scale_pathes_test: Optional[List[str] | str] = None,
         val_dir_indices: Optional[List[int] | int] = None,
         z_start: int = 24,
@@ -57,7 +58,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         pin_memory: bool = False,
         prefetch_factor: int = 2,
         persistent_workers: bool = False,
-        use_online_test: bool = False,
+        use_online_val_test: bool = False,
     ):
         super().__init__()
 
@@ -83,15 +84,17 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         self.test_transform = None
 
         # Train dataset scale is min volume scale for surface_volume_dirs
-        volume_scales = []
-        for root in self.hparams.surface_volume_dirs:
-            scale = 1.0
-            if 'fragments_downscaled_2' in root:
-                scale = 2.0
-            else:
-                logger.warning(f'Unknown scale for {root}, assuming 1.0') 
-            volume_scales.append(scale)
-        self.train_dataset_scale = min(volume_scales)
+        self.train_dataset_scale = 1.0
+        if self.hparams.surface_volume_dirs is not None:
+            volume_scales = []
+            for root in self.hparams.surface_volume_dirs:
+                scale = 1.0
+                if 'fragments_downscaled_2' in root:
+                    scale = 2.0
+                else:
+                    logger.warning(f'Unknown scale for {root}, assuming 1.0') 
+                volume_scales.append(scale)
+            self.train_dataset_scale = min(volume_scales)
         logger.info(f'train_dataset_scale: {self.train_dataset_scale}')
 
         # Imagenets mean and std
@@ -304,33 +307,46 @@ class SurfaceVolumeDatamodule(LightningDataModule):
             )
 
         if self.val_dataset is None and val_surface_volume_dirs:
-            volumes, \
-            scroll_masks, \
-            ir_images, \
-            ink_masks, \
-            subtracts, \
-            divides = \
-                read_data(
-                    val_surface_volume_dirs, 
+            if self.hparams.use_online_val_test:
+                self.val_dataset = OnlineSurfaceVolumeDataset(
+                    pathes=val_surface_volume_dirs,
                     z_start=self.hparams.z_start,
                     z_end=self.hparams.z_end,
+                    transform=self.val_transform,
+                    patch_size=val_test_patch_size,
+                    patch_step=val_patch_step,
+                    do_scale=True,
+                    map_pathes=self.hparams.z_shift_scale_pathes_val,
+                    skip_empty_scroll_mask=True,
                 )
-            
-            self.val_dataset = InMemorySurfaceVolumeDataset(
-                volumes=volumes, 
-                scroll_masks=scroll_masks, 
-                pathes=val_surface_volume_dirs,
-                ir_images=ir_images, 
-                ink_masks=ink_masks,
-                transform=self.val_transform,
-                patch_size=val_test_patch_size,
-                patch_step=val_patch_step,
-                subtracts=subtracts,
-                divides=divides,
-            )
+            else:
+                volumes, \
+                scroll_masks, \
+                ir_images, \
+                ink_masks, \
+                subtracts, \
+                divides = \
+                    read_data(
+                        val_surface_volume_dirs, 
+                        z_start=self.hparams.z_start,
+                        z_end=self.hparams.z_end,
+                    )
+                
+                self.val_dataset = InMemorySurfaceVolumeDataset(
+                    volumes=volumes, 
+                    scroll_masks=scroll_masks, 
+                    pathes=val_surface_volume_dirs,
+                    ir_images=ir_images, 
+                    ink_masks=ink_masks,
+                    transform=self.val_transform,
+                    patch_size=val_test_patch_size,
+                    patch_step=val_patch_step,
+                    subtracts=subtracts,
+                    divides=divides,
+                )
 
         if self.test_dataset is None and self.hparams.surface_volume_dirs_test is not None:
-            if self.hparams.use_online_test:
+            if self.hparams.use_online_val_test:
                 self.test_dataset = OnlineSurfaceVolumeDataset(
                     pathes=self.hparams.surface_volume_dirs_test,
                     z_start=self.hparams.z_start,
@@ -358,7 +374,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
                 self.test_dataset = InMemorySurfaceVolumeDataset(
                     volumes=volumes, 
                     scroll_masks=scroll_masks, 
-                    pathes=val_surface_volume_dirs,
+                    pathes=self.hparams.surface_volume_dirs_test,
                     ir_images=ir_images, 
                     ink_masks=ink_masks,
                     transform=self.test_transform,
