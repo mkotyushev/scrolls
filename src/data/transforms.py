@@ -779,6 +779,8 @@ class Tta:
             
             # Predict
             pred_aug = self.model(batch_aug)
+            if pred_aug.ndim == 3:
+                pred_aug = pred_aug.unsqueeze(1)
 
             # Inverse transform
             # Note: order of transforms is reversed
