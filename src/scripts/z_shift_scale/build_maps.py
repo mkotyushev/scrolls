@@ -322,8 +322,12 @@ def main():
     )
 
     # Save run command & commit id
-    repo = git.Repo(search_parent_directories=True)
-    sha = repo.head.object.hexsha
+    sha = 'not a git repo'
+    try:
+        repo = git.Repo(search_parent_directories=True)
+        sha = repo.head.object.hexsha
+    except git.exc.InvalidGitRepositoryError:
+        pass
     with open(args.output_dir / 'build_maps_args.txt', 'w') as f:
         f.write(f'git commit id: {sha}\n')
         f.write(' '.join(['python'] + sys.argv))
