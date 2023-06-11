@@ -530,8 +530,6 @@ def build_segmentation(
             **create_model_kwargs,
         )
 
-        if type_.startswith('2d_agg'):
-            in_channels = 1
         patch_first_conv(
             encoder, 
             new_in_channels=in_channels,
@@ -558,9 +556,8 @@ def build_segmentation(
             decoder_attention_type=decoder_attention_type,
         )
         
-        if type_.startswith('2d_agg'):
-            agg = type_.split('2d_agg_')[-1]
-            model = Unet2dAgg(unet, agg=agg)
+        if type_ == '2d_agg':
+            model = Unet2dAgg(unet, full_size=18, size=in_channels, step=3)
         else:
             model = Unet2d(unet)
     elif type_.startswith('3d_acs'):
