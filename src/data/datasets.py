@@ -363,16 +363,22 @@ class OnlineSurfaceVolumeDataset:
             patch_step = patch_size
         self.patch_size = to_2tuple(patch_size)
         self.patch_step = to_2tuple(patch_step)
-        self.do_scale = do_scale
+        if do_scale and map_pathes is None:
+            logger.warning('do_scale is set to False due to map_pathes is None')
+        self.do_scale = do_scale and map_pathes is not None
 
-        if map_pathes is None:
-            map_pathes = pathes
         self.map_pathes = map_pathes
         self.skip_empty_scroll_mask = skip_empty_scroll_mask
 
         self.build_data()
 
     def build_data(self):
+        # If scaling online, read all data
+        z_start_reading, z_end_reading = 0, N_SLICES
+        if not self.do_scale:
+            z_start_reading = self.z_start
+            z_end_reading = self.z_end
+
         # Load data
         self.volumes = []
         self.scroll_masks = []
@@ -382,15 +388,17 @@ class OnlineSurfaceVolumeDataset:
         self.z_scales = []
         self.y_shifts = []
         self.y_scales = []
-        for root, map_root in zip(self.pathes, self.map_pathes):
-            root, map_root = Path(root), Path(map_root)
+        for i in range(len(self.pathes)):
+            root = Path(self.pathes[i])
             
             # Volume
             volume = []
-            for layer_index in range(0, N_SLICES):
-                volume.append(
-                    pyvips.Image.new_from_file(str(root / 'surface_volume' / f'{layer_index:02}.tif'))
-                )
+            for layer_index in range(0, z_end_reading):
+                if layer_index < z_start_reading or layer_index >= z_end_reading:
+                    v = None
+                else:
+                    v = pyvips.Image.new_from_file(str(root / 'surface_volume' / f'{layer_index:02}.tif'))
+                volume.append(v)
             self.volumes.append(volume)
 
             # Scroll mask
@@ -425,6 +433,7 @@ class OnlineSurfaceVolumeDataset:
         
             # Z shift and scale maps
             if self.do_scale:
+                map_root = Path(self.map_pathes[i])
                 self.z_shifts.append(np.load(str(map_root / 'z_shift.npy')))
                 self.z_scales.append(np.load(str(map_root / 'z_scale.npy')))
                 self.y_shifts.append(np.load(str(map_root / 'y_shift.npy')))
@@ -503,7 +512,9 @@ class OnlineSurfaceVolumeDataset:
         )
         volume = self.volumes[outer_index]
         for i, layer_index in enumerate(range(z_start_input, z_end_input)):
-            slice_ = volume[layer_index].crop(
+            v = volume[layer_index]
+            assert v is not None, f'layer {layer_index} is not loaded'
+            slice_ = v.crop(
                 patch_info['bbox'][1],
                 patch_info['bbox'][0],
                 patch_info['bbox'][3] - patch_info['bbox'][1],
