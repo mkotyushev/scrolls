@@ -217,10 +217,10 @@ class FeatureExtractorWrapper3d(nn.Module):
 
 
 class Eva02Wrapper(nn.Module):
-    def __init__(self, model):
+    def __init__(self, model, scale_factor=4):
         super().__init__()
         self.model = model
-        self.upsampling = nn.UpsamplingBilinear2d(scale_factor=4)
+        self.upsampling = nn.UpsamplingBilinear2d(scale_factor=scale_factor)
     
     def forward(self, x):
         # (B, 1, H, W, D) -> (B, D, H, W)
