@@ -35,7 +35,6 @@ from src.model.swin_transformer_v2_3d import (
     _update_default_kwargs,
     Format as Format3d,
 )
-from src.model.unet_2d_agg import Unet2dAgg
 from src.model.unet_2d import Unet2d
 from src.model.unet_3d_acs import ConvNeXtBlockAcs, UNet3dAcs, ACSConverterTimm
 from src.utils.mechanic import mechanize
@@ -43,6 +42,7 @@ from src.utils.utils import (
     FeatureExtractorWrapper, 
     FeatureExtractorWrapper3d,
     Eva02Wrapper,
+    Agg2dWrapper,
     PredictionTargetPreviewAgg, 
     PredictionTargetPreviewGrid, 
     get_feature_channels, 
@@ -444,6 +444,7 @@ eva02_backbone_name_to_params = {
 def build_segmentation_eva02(
     backbone_name,
     in_channels, 
+    type_,
     load_ckpt=True,  # on inference loaded by lightning
     grad_checkpointing=False,
 ):
@@ -475,7 +476,12 @@ def build_segmentation_eva02(
     model.use_checkpoint = grad_checkpointing
 
     # Wrap to handle 3D data
-    model = Eva02Wrapper(model)
+    if type_ == 'eva02':
+        model = Eva02Wrapper(model, scale_factor=4)
+    elif type_ == 'eva02_agg':
+        model = Agg2dWrapper(model, full_size=18, size=in_channels, step=3, scale_factor=4)
+    else:
+        raise NotImplementedError(f'Unknown type {type_}.')
 
     return model
 
@@ -611,7 +617,7 @@ def build_segmentation_timm(
         )
         
         if type_ == '2d_agg':
-            model = Unet2dAgg(unet, full_size=18, size=in_channels, step=3)
+            model = Agg2dWrapper(unet, full_size=18, size=in_channels, step=3, scale_factor=None)
         else:
             model = Unet2d(unet)
     elif type_.startswith('3d_acs'):
@@ -718,10 +724,11 @@ class SegmentationModule(BaseModule):
         )
         self.save_hyperparameters()
 
-        if type_ == 'eva02':
+        if type_.startswith('eva02'):
             self.model = build_segmentation_eva02(
                 in_channels=in_channels, 
                 backbone_name=backbone_name,
+                type_=type_, 
                 load_ckpt=True,
                 grad_checkpointing=grad_checkpointing,
             )
