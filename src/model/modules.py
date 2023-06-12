@@ -447,12 +447,14 @@ def build_segmentation_eva02(
     type_,
     pretrained=True,  # on inference loaded by lightning
     grad_checkpointing=False,
+    img_size=384,
 ):
     # Get config
     cfg_path = eva02_backbone_name_to_params[backbone_name]['cfg_path']
     cfg = Config.fromfile(cfg_path)
     cfg.model.decode_head.num_classes = 1
     cfg.model.auxiliary_head.num_classes = 1
+    cfg.model.backbone.img_size = img_size
 
     # Build model & load checkpoint
     model = build_segmentor(
@@ -731,6 +733,7 @@ class SegmentationModule(BaseModule):
                 type_=type_, 
                 pretrained=pretrained,
                 grad_checkpointing=grad_checkpointing,
+                img_size=img_size,
             )
         else:
             self.model = build_segmentation_timm(
