@@ -1,0 +1,3 @@
+[submodule "lib/EVA"]
+	path = lib/EVA
+	url = https://github.com/baaivision/EVA.git
