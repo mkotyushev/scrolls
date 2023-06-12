@@ -256,7 +256,7 @@ class SurfaceVolumeDatamodule(LightningDataModule):
         test_patch_step = \
             None \
             if self.hparams.resize_xy in ['resize', 'none'] else \
-            self.hparams.img_size // 8
+            self.hparams.img_size // 2
 
         # Train
         train_surface_volume_dirs, val_surface_volume_dirs = [], []
