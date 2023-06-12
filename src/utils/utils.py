@@ -216,6 +216,24 @@ class FeatureExtractorWrapper3d(nn.Module):
         return features
 
 
+class Eva02Wrapper(nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+        self.upsampling = nn.UpsamplingBilinear2d(scale_factor=4)
+    
+    def forward(self, x):
+        # (B, 1, H, W, D) -> (B, D, H, W)
+        x = x.squeeze(1).permute(0, 3, 1, 2).contiguous()
+        x = self.model(x)
+        # # Remove the channel (single class) dimension
+        # # (B, 1, H, W) -> (B, H, W)
+        # x = x.squeeze(1)
+        # Upsample to original size
+        x = self.upsampling(x)
+        return x
+
+
 def get_num_layers(model: FeatureListNet):
     return len([key for key in model if 'layers' in key])
 

@@ -15,6 +15,14 @@ from lightning.pytorch.utilities import grad_norm
 from unittest.mock import patch
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from torchvision.ops import sigmoid_focal_loss
+from mmseg.models import build_segmentor
+from mmengine.runner import load_checkpoint
+from mmengine.config import Config
+
+import sys
+
+sys.path.insert(0, '/workspace/scrolls/lib/EVA/EVA-02/seg')
+from backbone import eva2
 
 from src.data.transforms import Tta
 from src.model.smp import Unet, patch_first_conv
@@ -34,6 +42,7 @@ from src.utils.mechanic import mechanize
 from src.utils.utils import (
     FeatureExtractorWrapper, 
     FeatureExtractorWrapper3d,
+    Eva02Wrapper,
     PredictionTargetPreviewAgg, 
     PredictionTargetPreviewGrid, 
     get_feature_channels, 
@@ -426,7 +435,52 @@ backbone_name_to_params = {
 }
 
 
-def build_segmentation(
+eva02_backbone_name_to_params = {
+    'eva02_B_ade_seg_upernet_sz512': {
+        'cfg_path': './lib/EVA/EVA-02/seg/configs/eva02/upernet/upernet_eva02_base_12_512_slide_60k.py',
+        'ckpt_path': './scrolls/eva02_B_ade_seg_upernet_sz512.pth',
+    }
+}
+def build_segmentation_eva02(
+    backbone_name,
+    in_channels, 
+    load_ckpt=True,  # on inference loaded by lightning
+    grad_checkpointing=False,
+):
+    # Get config
+    cfg_path = eva02_backbone_name_to_params[backbone_name]['cfg_path']
+    cfg = Config.fromfile(cfg_path)
+    cfg.model.decode_head.num_classes = 1
+    cfg.model.auxiliary_head.num_classes = 1
+
+    # Build model & load checkpoint
+    model = build_segmentor(
+        cfg.model,
+        train_cfg=cfg.get('train_cfg'),
+        test_cfg=cfg.get('test_cfg'))
+    if load_ckpt:
+        ckpt_path = eva02_backbone_name_to_params[backbone_name]['ckpt_path']
+        load_checkpoint(model, ckpt_path, map_location='cuda')
+    
+    # Patch first conv from 3 to in_channels
+    patch_first_conv(
+        model, 
+        new_in_channels=in_channels,
+        default_in_channels=3, 
+        pretrained=True,
+        conv_type=nn.Conv2d,
+    )
+    
+    # Set grad checkpointing
+    model.use_checkpoint = grad_checkpointing
+
+    # Wrap to handle 3D data
+    model = Eva02Wrapper(model)
+
+    return model
+
+
+def build_segmentation_timm(
     backbone_name, 
     type_, 
     in_channels=1, 
@@ -663,15 +717,24 @@ class SegmentationModule(BaseModule):
             mechanize=mechanize,
         )
         self.save_hyperparameters()
-        self.model = build_segmentation(
-            backbone_name, 
-            type_, 
-            in_channels=in_channels,
-            decoder_attention_type=decoder_attention_type,
-            img_size=img_size,
-            grad_checkpointing=grad_checkpointing,
-            pretrained=pretrained,
-        )
+
+        if type_ == 'eva02':
+            self.model = build_segmentation_eva02(
+                in_channels=in_channels, 
+                backbone_name=backbone_name,
+                load_ckpt=True,
+                grad_checkpointing=grad_checkpointing,
+            )
+        else:
+            self.model = build_segmentation_timm(
+                backbone_name, 
+                type_, 
+                in_channels=in_channels,
+                decoder_attention_type=decoder_attention_type,
+                img_size=img_size,
+                grad_checkpointing=grad_checkpointing,
+                pretrained=pretrained,
+            )
 
         if finetuning is not None and finetuning['unfreeze_before_epoch'] == 0:
             self.unfreeze()
