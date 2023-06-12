@@ -445,7 +445,7 @@ def build_segmentation_eva02(
     backbone_name,
     in_channels, 
     type_,
-    load_ckpt=True,  # on inference loaded by lightning
+    pretrained=True,  # on inference loaded by lightning
     grad_checkpointing=False,
 ):
     # Get config
@@ -459,7 +459,7 @@ def build_segmentation_eva02(
         cfg.model,
         train_cfg=cfg.get('train_cfg'),
         test_cfg=cfg.get('test_cfg'))
-    if load_ckpt:
+    if pretrained:
         ckpt_path = eva02_backbone_name_to_params[backbone_name]['ckpt_path']
         load_checkpoint(model, ckpt_path, map_location='cuda')
     
@@ -729,7 +729,7 @@ class SegmentationModule(BaseModule):
                 in_channels=in_channels, 
                 backbone_name=backbone_name,
                 type_=type_, 
-                load_ckpt=True,
+                pretrained=pretrained,
                 grad_checkpointing=grad_checkpointing,
             )
         else:
