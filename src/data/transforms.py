@@ -773,9 +773,9 @@ class Tta:
                 for _ in range(n_random_replays)
             ]
         self.transforms = [
-            *rotates90,
-            *flips,
-            *rotates,
+            rotates90,
+            flips,
+            rotates,
         ]
 
     def predict(self, batch: torch.Tensor) -> List[torch.Tensor]:
