@@ -698,7 +698,7 @@ class SegmentationModule(BaseModule):
         in_channels: int = 6,
         log_preview_every_n_epochs: int = 10,
         tta_each_n_epochs: int = 10,
-        tta_n_random_replays: int = 0,
+        tta_params: Dict[str, Any] = None,
         pretrained: bool = True,
         label_smoothing: float = 0.0,
         pos_weight: float = 1.0,
@@ -758,10 +758,12 @@ class SegmentationModule(BaseModule):
         assert loss_name in ['bce', 'focal', 'dice'], f'Unknown loss name {loss_name}.'
         assert tta_each_n_epochs != 0, \
             'tta_each_n_epochs == 0 is not supported, use tta_each_n_epochs == -1 to disable TTA.'
+        if tta_params is None:
+            tta_params = {}
         self.tta = \
             None \
             if tta_each_n_epochs < 0 else \
-            Tta(model=self.model, n_random_replays=tta_n_random_replays)
+            Tta(model=self.model, **tta_params)
 
     def compute_loss_preds(self, batch, tta=False, *args, **kwargs):
         """Compute losses and predictions."""

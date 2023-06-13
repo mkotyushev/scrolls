@@ -67,7 +67,10 @@ model:
     backbone_name: convnextv2_large.fcmae_ft_in22k_in1k_384
     log_preview_every_n_epochs: 5
     tta_each_n_epochs: 5
-    tta_n_random_replays: 0
+    tta_params: 
+      n_random_replays: 0
+      use_flip: true
+      use_rotate: true
     pretrained: true
     mechanize: false
     loss_name: bce

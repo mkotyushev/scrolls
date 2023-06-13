@@ -738,7 +738,10 @@ class TtaRotate:
 
 
 class Tta:
-    def __init__(self, model, n_random_replays=1):
+    def __init__(self, model, n_random_replays=1, use_flip=True, use_rotate=True):
+        assert n_random_replays > 0 or use_flip or use_rotate, \
+            "At least one of n_random_replays > 0, "\
+            "use_flip or use_rotate should be True."
         self.model = model
         
         # Imagenet normalization during training is assumed
@@ -748,22 +751,31 @@ class Tta:
         # - flips
         # - rotations on 90 degrees
         # - n_replays rotations on random angle
-        self.transforms = [
-            [
-                None,
-                TtaHorizontalFlip(),
-                TtaVerticalFlip(),
-            ],
-            [
+        rotates90 = []
+        if use_rotate:
+            rotates90 = [
                 None,
                 TtaRotate90(1),
                 TtaRotate90(2),
                 TtaRotate90(3),
-            ],
-            [None] + [
+            ]
+        flips = []
+        if use_flip:
+            flips = [
+                None,
+                TtaHorizontalFlip(),
+                TtaVerticalFlip(),
+            ]
+        rotates = []
+        if n_random_replays > 0:
+            rotates = [None] + [
                 TtaRotate(limit_degrees=45, fill_value=fill_value) 
                 for _ in range(n_random_replays)
-            ],
+            ]
+        self.transforms = [
+            *rotates90,
+            *flips,
+            *rotates,
         ]
 
     def predict(self, batch: torch.Tensor) -> List[torch.Tensor]:

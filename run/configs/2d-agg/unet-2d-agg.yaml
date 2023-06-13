@@ -79,7 +79,10 @@ model:
     backbone_name: null
     log_preview_every_n_epochs: 5
     tta_each_n_epochs: -1
-    tta_n_random_replays: 0
+    tta_params: 
+      n_random_replays: 0
+      use_flip: true
+      use_rotate: true 0
     pretrained: true
     mechanize: false
     loss_name: bce
