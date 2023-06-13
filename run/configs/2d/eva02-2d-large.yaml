@@ -1,0 +1,11 @@
+trainer:
+  max_epochs: 48
+  accumulate_grad_batches: 2
+model:
+  init_args:
+    backbone_name: eva02_L_ade_seg_upernet_sz640
+    grad_checkpointing: false
+data:
+  init_args:
+    img_size: 640
+    batch_size: 4
