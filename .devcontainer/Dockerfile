@@ -48,7 +48,7 @@ RUN /root/miniconda3/envs/scrolls/bin/pip install \
 # Install libvips: need to be done after pip install pyvips 
 # (which is in requirements.txt) due to some weird bug
 RUN \
-    apt-get -y install libvips libvips-dev libvips-tools
+    apt-get -y install libvips libvips-dev libvips-tools g++-9
 
 # Add repo folder to PYTHONPATH
 ENV PYTHONPATH="/workspace/scrolls:${PYTHONPATH}"
