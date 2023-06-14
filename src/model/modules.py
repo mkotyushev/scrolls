@@ -15,9 +15,6 @@ from lightning.pytorch.utilities import grad_norm
 from unittest.mock import patch
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from torchvision.ops import sigmoid_focal_loss
-from mmseg.models import build_segmentor
-from mmengine.runner import load_checkpoint
-from mmengine.config import Config
 
 import sys
 
@@ -453,6 +450,10 @@ def build_segmentation_eva02(
     grad_checkpointing=False,
     img_size=384,
 ):
+    from mmseg.models import build_segmentor
+    from mmengine.runner import load_checkpoint
+    from mmengine.config import Config
+    
     # Get config
     cfg_path = eva02_backbone_name_to_params[backbone_name]['cfg_path']
     cfg = Config.fromfile(cfg_path)
