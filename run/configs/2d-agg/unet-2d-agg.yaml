@@ -81,7 +81,7 @@ model:
     tta_each_n_epochs: -1
     tta_params: 
       n_random_replays: 0
-      use_vflip: true
+      use_vflip: false
       use_hflip: false
       rotate90_indices: [1, 2, 3]
     pretrained: true
