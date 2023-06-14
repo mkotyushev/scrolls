@@ -82,7 +82,7 @@ model:
     tta_params: 
       n_random_replays: 0
       use_flip: true
-      use_rotate: true 0
+      use_rotate: true
     pretrained: true
     mechanize: false
     loss_name: bce
