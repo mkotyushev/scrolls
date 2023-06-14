@@ -738,10 +738,10 @@ class TtaRotate:
 
 
 class Tta:
-    def __init__(self, model, n_random_replays=1, use_flip=True, rotate90_indices=None):
-        assert n_random_replays > 0 or use_flip or rotate90_indices is not None, \
+    def __init__(self, model, n_random_replays=1, use_hflip=True, use_vflip=True, rotate90_indices=None):
+        assert n_random_replays > 0 or use_hflip or use_vflip or rotate90_indices is not None, \
             "At least one of n_random_replays > 0, "\
-            "use_flip or rotate90_indices is not None should be True."
+            "use_hflip or use_vflip or rotate90_indices is not None should be True."
         assert all([i > 0 and i <= 3 for i in rotate90_indices]), \
             f"rotate90_indices should be in [0, 3]. Got {rotate90_indices}"
         assert len(rotate90_indices) == len(set(rotate90_indices)), \
@@ -761,10 +761,12 @@ class Tta:
                 TtaRotate90(i) for i in rotate90_indices
             ]
         flips = [None]
-        if use_flip:
-            flips = [
-                None,
+        if use_hflip:
+            flips += [
                 TtaHorizontalFlip(),
+            ]
+        if use_vflip:
+            flips += [
                 TtaVerticalFlip(),
             ]
         rotates = [None]
