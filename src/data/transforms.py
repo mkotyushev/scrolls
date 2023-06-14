@@ -751,7 +751,7 @@ class Tta:
         # - flips
         # - rotations on 90 degrees
         # - n_replays rotations on random angle
-        rotates90 = []
+        rotates90 = [None]
         if use_rotate:
             rotates90 = [
                 None,
@@ -759,14 +759,14 @@ class Tta:
                 TtaRotate90(2),
                 TtaRotate90(3),
             ]
-        flips = []
+        flips = [None]
         if use_flip:
             flips = [
                 None,
                 TtaHorizontalFlip(),
                 TtaVerticalFlip(),
             ]
-        rotates = []
+        rotates = [None]
         if n_random_replays > 0:
             rotates = [None] + [
                 TtaRotate(limit_degrees=45, fill_value=fill_value) 
