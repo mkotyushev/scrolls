@@ -16,11 +16,6 @@ from unittest.mock import patch
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from torchvision.ops import sigmoid_focal_loss
 
-import sys
-
-sys.path.insert(0, '/workspace/scrolls/lib/EVA/EVA-02/seg')
-from backbone import eva2
-
 from src.data.transforms import Tta
 from src.model.smp import Unet, patch_first_conv
 from src.model.swin_transformer_v2_pseudo_3d import (
@@ -450,6 +445,10 @@ def build_segmentation_eva02(
     grad_checkpointing=False,
     img_size=384,
 ):
+    import sys
+
+    sys.path.insert(0, '/workspace/scrolls/lib/EVA/EVA-02/seg')
+    from backbone import eva2
     from mmseg.models import build_segmentor
     from mmengine.runner import load_checkpoint
     from mmengine.config import Config
