@@ -11,3 +11,4 @@ software/
 maps/
 preds/
 *.zip
+!assets/*.png
