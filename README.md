@@ -1,13 +1,99 @@
 # Introduction
 
-This repository contains deep learning development environment for scrolls project.
+This repository contains deep learning development environment for 13th place in [Vesuvius Challenge - Ink Detection](https://www.kaggle.com/competitions/vesuvius-challenge-ink-detection/overview) competition.
 
-# Installation
+# To reproduce
 
-### mmcv & mmsegmentation
-1. mmcv: `pip install mmcv==2.0.0 -f https://download.openmmlab.com/mmcv/dist/cu117/torch2.0/index.html`
-2. mmsegmentation & deps (except apex, which needs to be build from source): `pip install xformers==0.0.20 einops==0.6.1 mmsegmentation==1.0.0`
-3. apex: `cd lib && git clone https://github.com/NVIDIA/apex && cd apex && CC='/usr/bin/gcc-9' CXX='/usr/bin/g++-9' pip install -v --disable-pip-version-check --no-cache-dir --global-option="--cpp_ext" --global-option="--cuda_ext" ./`
+The solution is working in Docker VSCode devcontainer. Requirements are: 
+- Docker
+- VSCode
+- ~
+80 Gb of free disk space 
+- 64 Gb RAM available 
+- (optional) [wandb](https://wandb.ai/) account
+- (optional but highly recommended for fast training / inference) decent 16 GB GPU
+
+To reproduce top 13 solution, please follow the steps below:
+
+## Training
+
+1. Clone the repository: `git clone --recurse-submodules https://github.com/mkotyushev/scrolls.git` & checkout to `622e3da5d3c4023db27bb071f463b8c27f87dcfb` commit
+2. Run the container: open the cloned `scrolls` dir in VSCode and click `Reopen in Container`
+3. Prepare the data 
+- download dataset to `/workspace/data/fragments` (e. g. path to sample submission is `/workspace/data/fragments/sample_submission.csv`)
+- run `/workspace/scrolls/generate_maps.ipynb` notebook to pre-process data: `/workspace/data/fragments_z_shift_scale` dir will be produced
+- move the data: `mv /workspace/data/fragments_z_shift_scale /workspace/data/fragments_z_shift_scale/fragments_z_shift_scale_3_stage_256_2`
+4. Activate the environment: `conda activate scrolls`
+5. (Optional) disable wandb by issuing `wandb disabled` command inside `/workspace/scrolls` dir if you do not want to use wandb
+6. Following command with `VAL_DIR_INDEX` from 0 to 4 inclusively will produce 5 models in `/workspace/scrolls/scrolls` dir named by wandb run IDs (8 alphanumeric characters):
+```
+python run/main.py fit --config run/configs/2d-agg/unet-2d-agg.yaml --config run/configs/2d/maxvit.yaml --data.init_args.val_dir_indices VAL_DIR_INDEX
+```
+
+Inside each produced dir `X` inside `/workspace/scrolls/scrolls` there will be `checkpoints/epoch=N-step=M.ckpt` file corresponding to the best checkpoint on validation fold by F05 metric.
+
+## Inference
+
+### Single model validation
+Validation could be run by issuing following command:
+```
+python /kaggle/input/scrolls/run/main.py 
+    validate \
+    --config /kaggle/input/scrolls/run/configs/2d-agg/unet-2d-agg.yaml \
+    --config /kaggle/input/scrolls/run/configs/2d/maxvit.yaml \
+    --model.init_args.pretrained false \
+    --model.init_args.tta_each_n_epochs -1 \
+    --data.init_args.use_online_val_test false \
+    --data.init_args.z_shift_scale_pathes_test null \
+    --data.init_args.z_start 20 \
+    --data.init_args.z_end 44 \
+    --data.init_args.num_workers 2 \
+    --data.init_args.surface_volume_dirs FRAGMENT_PATH \
+    --data.init_args.val_dir_indices 0 \
+    --data.init_args.surface_volume_dirs_test null \
+    --ckpt_path CHECKPOINT_PATH
+```
+
+`FRAGMENT_PATH` is path to single pre-processed fragment root dir (e. g. `/workspace/data/fragments_z_shift_scale_3_stage_256_2/train/1`), `CHECKPOINT_PATH` is path to `/workspace/scrolls/scrolls/X/checkpoints/epoch=N-step=M.ckpt` file produced during training.
+
+The validation results should be same (up to rounding) as in the table provided below in [Model](#model) section.
+
+### Prediction
+
+For prediction the command in following:
+```
+python /kaggle/input/scrolls/run/main.py 
+    predict \
+    --config /kaggle/input/scrolls/run/configs/2d-agg/unet-2d-agg.yaml \
+    --config /kaggle/input/scrolls/run/configs/2d/maxvit.yaml \
+    --model.init_args.pretrained false \
+    --model.init_args.tta_each_n_epochs -1 \
+    --data.init_args.use_online_val_test true \
+    --data.init_args.z_shift_scale_pathes_test null \
+    --data.init_args.z_start 20 \
+    --data.init_args.z_end 44 \
+    --data.init_args.num_workers 2 \
+    --data.init_args.surface_volume_dirs null \
+    --data.init_args.val_dir_indices null \
+    --data.init_args.surface_volume_dirs_test FRAGMENT_PATH \
+    --ckpt_path CHECKPOINT_PATH
+```
+
+This will produce single `Y_Z.png` (`Y` is fragment dir name, `Z` is random alphanumeric string) file and `submission.csv` in the current dir. 
+
+To aggregate multiple models predictions use following command in the dir with `.png` files:
+
+```
+python /workspace/scrolls/src/scripts/aggregate_images.py . .
+``` 
+
+It will produce the final `submission.csv` of mean models predictions in the current directory.
+
+`scrolls-inference-agg.ipynb` is used as inference notebook in Kaggle environment, [pyvips installer](https://www.kaggle.com/mkotyushev/pyvips-offline-installer) and [python packages](https://www.kaggle.com/datasets/mkotyushev/scrolls-software) are required as additional data sources.
+
+**Note**: in Kaggle environment there is only 13 Gb of RAM, so `use_online_val_test` flag is set to `true` to avoid loading all the data into memory. This will result in slower inference and may produce slightly different results.
+
+**Note**: no TTA is used during training / validation to get the results in [Model](#model) section, so `tta_each_n_epochs` is set to `-1` here. During inference on Kaggle TTA is used, so `tta_each_n_epochs` is set to `1` in Kaggle notebook.
 
 # Solution
 
@@ -197,3 +283,13 @@ Here, `CenterCropVolume` is center crop of 3D volume.
 Mixing approaches (cutmix, mixup, custom stuff like copy-paste the positive class voxels) also were tried but shown contradicting results, so were not included.
 
 Cartesian product of `no flip / H flip / V flip` and `no 90 rotation / 90 rotation / 180 rotation / 270 rotation` is used for TTA yielding total 12 predictions.
+
+
+# EVA02 installation
+
+**Note**: EVA02 model is not used in actual solution, it is included for completeness so steps below in this section are optional.
+
+### mmcv & mmsegmentation
+1. mmcv: `pip install mmcv==2.0.0 -f https://download.openmmlab.com/mmcv/dist/cu117/torch2.0/index.html`
+2. mmsegmentation & deps (except apex, which needs to be build from source): `pip install xformers==0.0.20 einops==0.6.1 mmsegmentation==1.0.0`
+3. apex: `cd lib && git clone https://github.com/NVIDIA/apex && cd apex && CC='/usr/bin/gcc-9' CXX='/usr/bin/g++-9' pip install -v --disable-pip-version-check --no-cache-dir --global-option="--cpp_ext" --global-option="--cuda_ext" ./`
