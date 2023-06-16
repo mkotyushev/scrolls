@@ -21,6 +21,7 @@ To reproduce top 13 solution, please follow the steps below:
 2. Run the container: open the cloned `scrolls` dir in VSCode and click `Reopen in Container`
 3. Prepare the data 
 - download dataset to `/workspace/data/fragments` (e. g. path to sample submission is `/workspace/data/fragments/sample_submission.csv`)
+- create downscaled version: `python src/scripts/downscale_dataset.py /workspace/data/fragments/ /workspace/data/fragments_downscaled_2/ 2`
 - run `/workspace/scrolls/generate_maps.ipynb` notebook to pre-process data: `/workspace/data/fragments_z_shift_scale` dir will be produced
 - move the data: `mv /workspace/data/fragments_z_shift_scale /workspace/data/fragments_z_shift_scale/fragments_z_shift_scale_3_stage_256_2`
 4. Activate the environment: `conda activate scrolls`
