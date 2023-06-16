@@ -38,10 +38,10 @@ Inside each produced dir `X` inside `/workspace/scrolls/scrolls` there will be `
 ### Single model validation
 Validation could be run by issuing following command:
 ```
-python /kaggle/input/scrolls/run/main.py 
+python /workspace/scrolls/run/main.py 
     validate \
-    --config /kaggle/input/scrolls/run/configs/2d-agg/unet-2d-agg.yaml \
-    --config /kaggle/input/scrolls/run/configs/2d/maxvit.yaml \
+    --config /workspace/scrolls/run/configs/2d-agg/unet-2d-agg.yaml \
+    --config /workspace/scrolls/run/configs/2d/maxvit.yaml \
     --model.init_args.pretrained false \
     --model.init_args.tta_each_n_epochs -1 \
     --data.init_args.use_online_val_test false \
@@ -63,10 +63,10 @@ The validation results should be same (up to rounding) as in the table provided 
 
 For prediction the command in following:
 ```
-python /kaggle/input/scrolls/run/main.py 
+python /workspace/scrolls/run/main.py 
     predict \
-    --config /kaggle/input/scrolls/run/configs/2d-agg/unet-2d-agg.yaml \
-    --config /kaggle/input/scrolls/run/configs/2d/maxvit.yaml \
+    --config /workspace/scrolls/run/configs/2d-agg/unet-2d-agg.yaml \
+    --config /workspace/scrolls/run/configs/2d/maxvit.yaml \
     --model.init_args.pretrained false \
     --model.init_args.tta_each_n_epochs -1 \
     --data.init_args.use_online_val_test true \
