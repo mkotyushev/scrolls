@@ -38,21 +38,7 @@ Inside each produced dir `X` inside `/workspace/scrolls/scrolls` there will be `
 ### Single model validation
 Validation could be run by issuing following command:
 ```
-python /workspace/scrolls/run/main.py 
-    validate \
-    --config /workspace/scrolls/run/configs/2d-agg/unet-2d-agg.yaml \
-    --config /workspace/scrolls/run/configs/2d/maxvit.yaml \
-    --model.init_args.pretrained false \
-    --model.init_args.tta_each_n_epochs -1 \
-    --data.init_args.use_online_val_test false \
-    --data.init_args.z_shift_scale_pathes_test null \
-    --data.init_args.z_start 20 \
-    --data.init_args.z_end 44 \
-    --data.init_args.num_workers 2 \
-    --data.init_args.surface_volume_dirs FRAGMENT_PATH \
-    --data.init_args.val_dir_indices 0 \
-    --data.init_args.surface_volume_dirs_test null \
-    --ckpt_path CHECKPOINT_PATH
+python /workspace/scrolls/run/main.py validate --config /workspace/scrolls/run/configs/2d-agg/unet-2d-agg.yaml --config /workspace/scrolls/run/configs/2d/maxvit.yaml --model.init_args.pretrained false --model.init_args.tta_each_n_epochs -1 --data.init_args.use_online_val_test false --data.init_args.z_shift_scale_pathes_test null --data.init_args.z_start 20 --data.init_args.z_end 44 --data.init_args.num_workers 2 --data.init_args.surface_volume_dirs FRAGMENT_PATH --data.init_args.val_dir_indices 0 --data.init_args.surface_volume_dirs_test null --ckpt_path CHECKPOINT_PATH
 ```
 
 `FRAGMENT_PATH` is path to single pre-processed fragment root dir (e. g. `/workspace/data/fragments_z_shift_scale_3_stage_256_2/train/1`), `CHECKPOINT_PATH` is path to `/workspace/scrolls/scrolls/X/checkpoints/epoch=N-step=M.ckpt` file produced during training.
@@ -63,21 +49,7 @@ The validation results should be same (up to rounding) as in the table provided 
 
 For prediction the command in following:
 ```
-python /workspace/scrolls/run/main.py 
-    predict \
-    --config /workspace/scrolls/run/configs/2d-agg/unet-2d-agg.yaml \
-    --config /workspace/scrolls/run/configs/2d/maxvit.yaml \
-    --model.init_args.pretrained false \
-    --model.init_args.tta_each_n_epochs -1 \
-    --data.init_args.use_online_val_test true \
-    --data.init_args.z_shift_scale_pathes_test null \
-    --data.init_args.z_start 20 \
-    --data.init_args.z_end 44 \
-    --data.init_args.num_workers 2 \
-    --data.init_args.surface_volume_dirs null \
-    --data.init_args.val_dir_indices null \
-    --data.init_args.surface_volume_dirs_test FRAGMENT_PATH \
-    --ckpt_path CHECKPOINT_PATH
+python /workspace/scrolls/run/main.py predict --config /workspace/scrolls/run/configs/2d-agg/unet-2d-agg.yaml --config /workspace/scrolls/run/configs/2d/maxvit.yaml --model.init_args.pretrained false --model.init_args.tta_each_n_epochs -1 --data.init_args.use_online_val_test true --data.init_args.z_shift_scale_pathes_test null --data.init_args.z_start 20 --data.init_args.z_end 44 --data.init_args.num_workers 2 --data.init_args.surface_volume_dirs null --data.init_args.val_dir_indices null --data.init_args.surface_volume_dirs_test FRAGMENT_PATH --ckpt_path CHECKPOINT_PATH
 ```
 
 This will produce single `Y_Z.png` (`Y` is fragment dir name, `Z` is random alphanumeric string) file and `submission.csv` in the current dir. 
